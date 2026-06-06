@@ -2,7 +2,11 @@ import { REST, Routes } from 'discord.js';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
-dotenv.config();
+
+// Load env file: .env.development → .env.production → .env (fallback)
+const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
+dotenv.config({ path: path.resolve(__dirname, '..', envFile) });
+dotenv.config({ path: path.resolve(__dirname, '..', '.env') }); // fallback
 
 const commands: unknown[] = [];
 
