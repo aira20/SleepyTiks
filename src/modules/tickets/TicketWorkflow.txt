@@ -1,0 +1,140 @@
+﻿import {
+  Guild as DiscordGuild,
+  TextChannel,
+  PermissionFlagsBits,
+  ChannelType,
+  ModalSubmitInteraction,
+  GuildMember,
+} from 'discord.js';
+import { PrismaClient, TicketType } from '@prisma/client';
+import { TicketManager } from './TicketManager.js';
+import { AccountAnalyzer } from '../antiscam/AccountAnalyzer.js';
+import { PatternDetector } from '../antiscam/PatternDetector.js';
+import { TICKET_FORMS } from '../../types/index.js';
+import { logger } from '../../utils/logger.js';
+import { LIMITS } from '../../config/constants.js';
+
+const prisma = new PrismaClient();
+
+export class TicketWorkflow {
+  /**
+   * Full ticket creation workflow:
+   * 1. Check cooldown
+   * 2. Check duplicate
+   * 3. Check open ticket limits
+   * 4. Analyze account risk
+   * 5. Detect form patterns
+   * 6. Create channel with correct permissions
+   * 7. Create ticket record
+   */
+  static async openTicket(
+    discordGuild: DiscordGuild,
+    member: GuildMember,
+    type: TicketType,
+    formData: Record<string, string>
+  ): Promise<{ success: boolean; message: string; channelId?: string }> {
+    const guildId = discordGuild.id;
+    const userId = member.id;
+    const userTag = member.user.tag;
+
+    // â”€â”€ DB guild config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const guild = await prisma.guild.findUnique({ where: { id: guildId } });
+    if (!guild) return { success: false, message: 'Bot is not configured for this server. Run /setup first.' };
+
+    // â”€â”€ Cooldown check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const cooldown = await PatternDetector.checkCooldown(guildId, userId, type);
+    if (cooldown.onCooldown) {
+      return {
+        success: false,
+        message: `You are on cooldown. You can open another ${type.replace(/_/g, ' ')} ticket <t:${Math.floor(cooldown.expiresAt!.getTime() / 1000)}:R>.`,
+      };
+    }
+
+    // â”€â”€ Duplicate check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const isDuplicate = await PatternDetector.checkDuplicateTicket(guildId, userId, type);
+    if (isDuplicate) {
+      return { success: false, message: `You already have an open ${type.replace(/_/g, ' ')} ticket.` };
+    }
+
+    // â”€â”€ Open ticket limit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const openCount = await prisma.ticket.count({
+      where: { guildId, creatorId: userId, status: { notIn: ['CLOSED', 'ARCHIVED'] } },
+    });
+    const maxOpen = guild.premiumTier === 'FREE' ? LIMITS.FREE_MAX_OPEN_TICKETS : LIMITS.PREMIUM_MAX_OPEN_TICKETS;
+    if (openCount >= maxOpen) {
+      return { success: false, message: `You have reached the maximum of ${maxOpen} open tickets.` };
+    }
+
+    // â”€â”€ Account risk analysis â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const riskProfile = await AccountAnalyzer.analyze(member, guildId);
+    if (riskProfile.recommendation === 'BLOCK') {
+      logger.warn(`Blocked ticket creation from ${userTag} â€” risk score ${riskProfile.riskScore}`);
+      return { success: false, message: 'You are not allowed to open tickets at this time. Contact an administrator if you believe this is a mistake.' };
+    }
+
+    // â”€â”€ Pattern detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const patterns = PatternDetector.analyzeFormData(formData);
+
+    // â”€â”€ Create channel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const categoryConfig = await prisma.ticketCategory.findUnique({
+      where: { guildId_ticketType: { guildId, ticketType: type } },
+    });
+
+    const channelName = `${type.toLowerCase().replace(/_/g, '-')}-${member.user.username.slice(0, 10)}`;
+
+    const staffRoleId = categoryConfig?.staffRoleId ?? guild.staffRoleId;
+    const categoryId = categoryConfig?.channelCategoryId ?? guild.ticketCategoryId;
+
+    const permissionOverwrites: any[] = [
+      { id: discordGuild.id, deny: [PermissionFlagsBits.ViewChannel] },
+      { id: userId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+    ];
+
+    if (staffRoleId) {
+      permissionOverwrites.push({
+        id: staffRoleId,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages],
+      });
+    }
+
+    const channel = await discordGuild.channels.create({
+      name: channelName,
+      type: ChannelType.GuildText,
+      parent: categoryId ?? undefined,
+      permissionOverwrites,
+      topic: `${type} ticket for ${userTag} | Ticket opened ${new Date().toISOString()}`,
+    }) as TextChannel;
+
+    // â”€â”€ Create ticket record â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const ticket = await TicketManager.create({
+      guildId,
+      creatorId: userId,
+      creatorTag: userTag,
+      type,
+      formData,
+      channel,
+    });
+
+    // â”€â”€ Set cooldown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    await PatternDetector.setCooldown(guildId, userId, type, guild.cooldownSeconds);
+
+    // â”€â”€ Risk warning to staff â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    if (riskProfile.recommendation === 'WARN_STAFF' || patterns.detected) {
+      const warnings: string[] = [];
+      if (riskProfile.recommendation === 'WARN_STAFF') {
+        warnings.push(`âš ï¸ **Risk Score: ${riskProfile.riskScore}/100**`);
+        riskProfile.flags.forEach(f => warnings.push(`â€¢ [${f.severity}] ${f.description}`));
+      }
+      if (patterns.detected) {
+        warnings.push('ðŸš¨ **Suspicious patterns detected in form:**');
+        patterns.patterns.forEach(p => warnings.push(`â€¢ ${p}`));
+      }
+      await channel.send({ content: `||<@${staffRoleId ?? ''}>||
+${warnings.join('
+')}` });
+    }
+
+    return { success: true, message: `Ticket created: <#${channel.id}>`, channelId: channel.id };
+  }
+}
+

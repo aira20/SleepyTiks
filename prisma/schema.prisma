@@ -1,0 +1,539 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Guild {
+  id                    String              @id
+  name                  String
+  isPremium             Boolean             @default(false)
+  premiumTier           PremiumTier         @default(NONE)
+  premiumExpiresAt      DateTime?
+  premiumLicenseKey     String?             @unique
+  logChannelId          String?
+  transcriptChannelId   String?
+  staffRoleIds          String[]            @default([])
+  adminRoleIds          String[]            @default([])
+  supportCategoryId     String?
+  purchaseCategoryId    String?
+  middlemanCategoryId   String?
+  appealCategoryId      String?
+  partnerCategoryId     String?
+  reportCategoryId      String?
+  maxOpenTicketsPerUser Int                 @default(3)
+  ticketCooldownSeconds Int                 @default(0)
+  autoCloseInactiveDays Int                 @default(7)
+  requireReasonOnClose  Boolean             @default(false)
+  dmUserOnClose         Boolean             @default(true)
+  transcriptsEnabled    Boolean             @default(true)
+  ratingsEnabled        Boolean             @default(false)
+  totalTickets          Int                 @default(0)
+  totalTransactions     Int                 @default(0)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  analytics             AnalyticsSnapshot[]
+  automationRules       AutomationRule[]
+  blacklistEntries      Blacklist[]
+  reputationRecords     Reputation[]
+  scamReports           ScamReport[]
+  shifts                Shift[]
+  staffStats            StaffStats[]
+  tickets               Ticket[]
+  customCategories      TicketCategory[]
+  transactions          Transaction[]
+  vouches               Vouch[]
+
+  @@index([isPremium])
+}
+
+model TicketCategory {
+  id                String   @id @default(cuid())
+  guildId           String
+  name              String
+  emoji             String?
+  description       String?
+  color             Int?
+  discordCategoryId String?
+  staffRoleIds      String[] @default([])
+  autoAssign        Boolean  @default(false)
+  requiresForm      Boolean  @default(true)
+  formFields        Json?
+  welcomeMessage    String?
+  maxOpenPerUser    Int      @default(1)
+  cooldownSeconds   Int      @default(0)
+  isActive          Boolean  @default(true)
+  isPremiumOnly     Boolean  @default(false)
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+  tickets           Ticket[]
+  guild             Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, isActive])
+}
+
+model Ticket {
+  id                String                @id @default(cuid())
+  ticketNumber      Int
+  guildId           String
+  type              TicketType
+  categoryId        String?
+  creatorId         String
+  creatorTag        String
+  claimedById       String?
+  claimedByTag      String?
+  channelId         String                @unique
+  channelName       String
+  status            TicketStatus          @default(OPEN)
+  priority          Priority              @default(NORMAL)
+  formData          Json?
+  transactionId     String?               @unique
+  firstResponseAt   DateTime?
+  closedAt          DateTime?
+  reopenedAt        DateTime?
+  responseTimeSec   Int?
+  resolutionTimeSec Int?
+  rating            Int?
+  ratingComment     String?
+  transcriptUrl     String?
+  closedReason      String?
+  closedById        String?
+  closedByTag       String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  notes             StaffNote[]
+  category          TicketCategory?       @relation(fields: [categoryId], references: [id])
+  guild             Guild                 @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  transaction       Transaction?          @relation(fields: [transactionId], references: [id])
+  attachments       TicketAttachment[]
+  participants      TicketParticipant[]
+  statusHistory     TicketStatusHistory[]
+  tags              TicketTag[]
+
+  @@unique([guildId, ticketNumber])
+  @@index([guildId, status])
+  @@index([guildId, creatorId])
+  @@index([guildId, claimedById])
+  @@index([guildId, type])
+  @@index([channelId])
+  @@index([guildId, createdAt])
+}
+
+model TicketStatusHistory {
+  id           String        @id @default(cuid())
+  ticketId     String
+  fromStatus   TicketStatus?
+  toStatus     TicketStatus
+  changedById  String
+  changedByTag String
+  reason       String?
+  createdAt    DateTime      @default(now())
+  ticket       Ticket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+}
+
+model StaffNote {
+  id        String   @id @default(cuid())
+  ticketId  String
+  authorId  String
+  authorTag String
+  content   String
+  isPinned  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+}
+
+model TicketParticipant {
+  id         String    @id @default(cuid())
+  ticketId   String
+  userId     String
+  userTag    String
+  addedById  String
+  addedByTag String
+  addedAt    DateTime  @default(now())
+  removedAt  DateTime?
+  ticket     Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, userId])
+  @@index([ticketId])
+}
+
+model TicketAttachment {
+  id            String   @id @default(cuid())
+  ticketId      String
+  uploadedById  String
+  uploadedByTag String
+  filename      String
+  url           String
+  mimeType      String?
+  sizeBytes     Int?
+  description   String?
+  createdAt     DateTime @default(now())
+  ticket        Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+}
+
+model TicketTag {
+  id        String @id @default(cuid())
+  ticketId  String
+  tag       String
+  addedById String
+  ticket    Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, tag])
+  @@index([ticketId])
+  @@index([tag])
+}
+
+model Transaction {
+  id                  String                     @id @default(cuid())
+  humanId             String                     @unique
+  guildId             String
+  buyerId             String
+  buyerTag            String
+  sellerId            String
+  sellerTag           String
+  middlemanId         String?
+  middlemanTag        String?
+  item                String
+  description         String?
+  price               Decimal                    @db.Decimal(12, 2)
+  currency            String                     @default("USD")
+  paymentMethod       String
+  notes               String?
+  status              TransactionStatus          @default(PENDING)
+  pendingAt           DateTime                   @default(now())
+  waitingPaymentAt    DateTime?
+  paymentConfirmedAt  DateTime?
+  deliveryStartedAt   DateTime?
+  completedAt         DateTime?
+  disputedAt          DateTime?
+  cancelledAt         DateTime?
+  disputeReason       String?
+  disputeOpenedById   String?
+  disputeResolution   String?
+  disputeResolvedById String?
+  paymentProofUrl     String?
+  deliveryProofUrl    String?
+  cancelReason        String?
+  cancelledById       String?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  ticket              Ticket?
+  guild               Guild                      @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  statusHistory       TransactionStatusHistory[]
+
+  @@index([guildId, status])
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([middlemanId])
+  @@index([guildId, createdAt])
+}
+
+model TransactionStatusHistory {
+  id            String             @id @default(cuid())
+  transactionId String
+  fromStatus    TransactionStatus?
+  toStatus      TransactionStatus
+  changedById   String
+  changedByTag  String
+  note          String?
+  createdAt     DateTime           @default(now())
+  transaction   Transaction        @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId])
+}
+
+model Vouch {
+  id            String   @id @default(cuid())
+  guildId       String
+  giverId       String
+  giverTag      String
+  receiverId    String
+  receiverTag   String
+  rating        Int
+  comment       String?
+  transactionId String?
+  isVerified    Boolean  @default(false)
+  isRemoved     Boolean  @default(false)
+  removedById   String?
+  removeReason  String?
+  createdAt     DateTime @default(now())
+  guild         Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, receiverId])
+  @@index([guildId, giverId])
+  @@index([giverId, receiverId, guildId])
+}
+
+model Reputation {
+  id              String   @id @default(cuid())
+  guildId         String
+  userId          String
+  userTag         String
+  totalVouches    Int      @default(0)
+  positiveVouches Int      @default(0)
+  negativeVouches Int      @default(0)
+  averageRating   Decimal  @default(0) @db.Decimal(3, 2)
+  reputationScore Int      @default(0)
+  totalDeals      Int      @default(0)
+  successfulDeals Int      @default(0)
+  updatedAt       DateTime @updatedAt
+  guild           Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, userId])
+  @@index([guildId, reputationScore])
+}
+
+model Blacklist {
+  id         String            @id @default(cuid())
+  guildId    String
+  userId     String
+  userTag    String
+  reason     String
+  evidence   String?
+  addedById  String
+  addedByTag String
+  severity   BlacklistSeverity @default(MEDIUM)
+  isGlobal   Boolean           @default(false)
+  expiresAt  DateTime?
+  isActive   Boolean           @default(true)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  guild      Guild             @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, userId])
+  @@index([userId])
+  @@index([guildId, isActive])
+  @@index([isGlobal, isActive])
+}
+
+model ScamReport {
+  id            String       @id @default(cuid())
+  guildId       String
+  reporterId    String
+  reporterTag   String
+  accusedId     String
+  accusedTag    String
+  scamType      ScamType
+  description   String
+  evidenceUrls  String[]     @default([])
+  amountLost    Decimal?     @db.Decimal(12, 2)
+  currency      String?
+  transactionId String?
+  status        ReportStatus @default(PENDING)
+  reviewedById  String?
+  reviewedByTag String?
+  reviewNotes   String?
+  resolution    String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  guild         Guild        @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, status])
+  @@index([accusedId])
+  @@index([reporterId])
+}
+
+model StaffStats {
+  id                   String   @id @default(cuid())
+  guildId              String
+  userId               String
+  userTag              String
+  ticketsClaimed       Int      @default(0)
+  ticketsClosed        Int      @default(0)
+  ticketsEscalated     Int      @default(0)
+  notesLeft            Int      @default(0)
+  messagesInTickets    Int      @default(0)
+  totalFirstResponseMs BigInt   @default(0)
+  firstResponseCount   Int      @default(0)
+  totalResolutionMs    BigInt   @default(0)
+  resolutionCount      Int      @default(0)
+  totalRatingScore     Int      @default(0)
+  ratingCount          Int      @default(0)
+  periodStart          DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  guild                Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, userId])
+  @@index([guildId, ticketsClosed])
+}
+
+model Shift {
+  id             String    @id @default(cuid())
+  guildId        String
+  userId         String
+  userTag        String
+  startedAt      DateTime  @default(now())
+  endedAt        DateTime?
+  durationSec    Int?
+  ticketsHandled Int       @default(0)
+  guild          Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, userId])
+  @@index([guildId, startedAt])
+}
+
+model AnalyticsSnapshot {
+  id                    String   @id @default(cuid())
+  guildId               String
+  date                  DateTime
+  ticketsOpened         Int      @default(0)
+  ticketsClosed         Int      @default(0)
+  ticketsEscalated      Int      @default(0)
+  avgFirstResponseSec   Int?
+  avgResolutionSec      Int?
+  avgRating             Decimal? @db.Decimal(3, 2)
+  ticketsByType         Json?
+  transactionsCreated   Int      @default(0)
+  transactionsCompleted Int      @default(0)
+  transactionsDisputed  Int      @default(0)
+  totalVolumeUsd        Decimal? @db.Decimal(14, 2)
+  guild                 Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, date])
+  @@index([guildId, date])
+}
+
+model AutomationRule {
+  id          String            @id @default(cuid())
+  guildId     String
+  name        String
+  isActive    Boolean           @default(true)
+  trigger     AutomationTrigger
+  conditions  Json?
+  actions     Json
+  cooldownSec Int               @default(3600)
+  lastFiredAt DateTime?
+  fireCount   Int               @default(0)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  guild       Guild             @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, isActive, trigger])
+}
+
+model UserCache {
+  id               String             @id
+  username         String
+  discriminator    String             @default("0")
+  avatarHash       String?
+  accountCreatedAt DateTime?
+  updatedAt        DateTime           @updatedAt
+  guildProfiles    UserGuildProfile[]
+}
+
+model UserGuildProfile {
+  id            String    @id @default(cuid())
+  userId        String
+  guildId       String
+  ticketsOpened Int       @default(0)
+  ticketsClosed Int       @default(0)
+  lastTicketAt  DateTime?
+  cooldownUntil DateTime?
+  isBanned      Boolean   @default(false)
+  banReason     String?
+  warningCount  Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          UserCache @relation(fields: [userId], references: [id])
+
+  @@unique([userId, guildId])
+  @@index([guildId, isBanned])
+}
+
+enum PremiumTier {
+  NONE
+  BASIC
+  PRO
+  LIFETIME
+}
+
+enum TicketType {
+  SUPPORT
+  PURCHASE
+  MIDDLEMAN
+  REPORT
+  REFUND
+  PARTNERSHIP
+  SERVICE_REQUEST
+  APPEAL
+  SELLER_APPLICATION
+  STAFF_APPLICATION
+  CUSTOM
+}
+
+enum TicketStatus {
+  OPEN
+  CLAIMED
+  IN_PROGRESS
+  WAITING_USER
+  WAITING_STAFF
+  ESCALATED
+  ON_HOLD
+  CLOSED
+  ARCHIVED
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+  CRITICAL
+}
+
+enum TransactionStatus {
+  PENDING
+  WAITING_PAYMENT
+  PAYMENT_CONFIRMED
+  DELIVERY_IN_PROGRESS
+  COMPLETED
+  DISPUTED
+  CANCELLED
+  REFUNDED
+}
+
+enum BlacklistSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  EXTREME
+}
+
+enum ScamType {
+  NO_DELIVERY
+  FAKE_PRODUCT
+  CHARGEBACK
+  IMPERSONATION
+  PHISHING
+  BAIT_AND_SWITCH
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  UNDER_REVIEW
+  CONFIRMED
+  DISMISSED
+  FALSE_REPORT
+}
+
+enum AutomationTrigger {
+  TICKET_OPENED
+  TICKET_UNCLAIMED_TIMEOUT
+  TICKET_INACTIVE_TIMEOUT
+  TICKET_CLOSED
+  TRANSACTION_STATUS_CHANGED
+  HIGH_PRIORITY_TICKET
+  BLACKLISTED_USER_TICKET
+  REPEAT_TICKET_OPENER
+}

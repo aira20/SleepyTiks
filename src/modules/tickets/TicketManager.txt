@@ -1,0 +1,335 @@
+﻿import {
+  TextChannel,
+  PermissionFlagsBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ChannelType,
+  Guild as DiscordGuild,
+} from 'discord.js';
+import { PrismaClient, TicketType, TicketStatus, Priority } from '@prisma/client';
+import { client } from '../../bot/client.js';
+import { TicketCreateOptions, TicketCloseOptions, TicketTransferOptions, TicketEscalateOptions, Colors, TICKET_STATUS_DISPLAY, PRIORITY_DISPLAY } from '../../types/index.js';
+import { AuditService } from '../../services/AuditService.js';
+import { NotificationService } from '../../services/NotificationService.js';
+import { TranscriptGenerator } from './TranscriptGenerator.js';
+import { formatTimestamp, priorityBadge, ticketStatusBadge } from '../../utils/formatting.js';
+import { logger } from '../../utils/logger.js';
+
+const prisma = new PrismaClient();
+
+export class TicketManager {
+  // â”€â”€ Create Ticket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  static async create(options: TicketCreateOptions) {
+    const { guildId, creatorId, creatorTag, type, formData, channel } = options;
+
+    const guild = await prisma.guild.findUnique({ where: { id: guildId } });
+    if (!guild) throw new Error('Guild not configured');
+
+    // Get next ticket number for this guild
+    const count = await prisma.ticket.count({ where: { guildId } });
+    const ticketNumber = count + 1;
+
+    const subject = formData?.subject ?? formData?.product ?? formData?.service_type ?? type;
+
+    const ticket = await prisma.ticket.create({
+      data: {
+        guildId,
+        channelId: channel.id,
+        ticketNumber,
+        type,
+        status: 'OPEN',
+        priority: 'NORMAL',
+        creatorId,
+        creatorTag,
+        subject,
+        formData: formData ?? {},
+      },
+    });
+
+    // Send welcome embed
+    const embed = this.buildTicketEmbed(ticket as any, creatorTag);
+    const row = this.buildTicketButtons(ticket.id);
+
+    await channel.send({ embeds: [embed], components: [row] });
+
+    // Audit
+    await AuditService.log({
+      guildId,
+      ticketId: ticket.id,
+      actorId: creatorId,
+      actorTag: creatorTag,
+      action: 'TICKET_OPENED',
+      newValue: `#${ticketNumber} ${type}`,
+    });
+
+    return ticket;
+  }
+
+  // â”€â”€ Close Ticket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  static async close(options: TicketCloseOptions) {
+    const { ticketId, closedById, closedByTag, reason, generateTranscript } = options;
+
+    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new Error('Ticket not found');
+    if (ticket.status === 'CLOSED' || ticket.status === 'ARCHIVED') throw new Error('Ticket already closed');
+
+    let transcriptUrl: string | undefined;
+    if (generateTranscript) {
+      transcriptUrl = await TranscriptGenerator.generate(ticket.channelId, ticket.guildId, ticket.ticketNumber);
+    }
+
+    await prisma.ticket.update({
+      where: { id: ticketId },
+      data: {
+        status: 'CLOSED',
+        closedAt: new Date(),
+        closedById,
+        closedByTag,
+        closeReason: reason,
+        transcriptUrl,
+      },
+    });
+
+    // Update staff stats
+    if (ticket.claimedById) {
+      await this.updateStaffStats(ticket.guildId, ticket.claimedById, closedByTag, ticket);
+    }
+
+    await AuditService.log({
+      guildId: ticket.guildId,
+      ticketId,
+      actorId: closedById,
+      actorTag: closedByTag,
+      action: 'TICKET_CLOSED',
+      newValue: reason,
+    });
+
+    await NotificationService.notifyTicketClosed(ticketId);
+
+    // Delete channel after delay
+    const channel = client.channels.cache.get(ticket.channelId) as TextChannel | undefined;
+    if (channel) {
+      const embed = new EmbedBuilder()
+        .setColor(Colors.NEUTRAL)
+        .setDescription(`ðŸ”’ Ticket closed by <@${closedById}>. This channel will be deleted in 10 seconds.`)
+        .addFields(
+          { name: 'Reason', value: reason ?? 'No reason provided' },
+          ...(transcriptUrl ? [{ name: 'Transcript', value: transcriptUrl }] : []),
+        );
+      await channel.send({ embeds: [embed] });
+      setTimeout(() => channel.delete().catch(() => {}), 10_000);
+    }
+  }
+
+  // â”€â”€ Claim Ticket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  static async claim(ticketId: string, staffId: string, staffTag: string) {
+    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new Error('Ticket not found');
+    if (ticket.claimedById) throw new Error(`Already claimed by <@${ticket.claimedById}>`);
+
+    const now = new Date();
+    const responseTimeMs = now.getTime() - ticket.openedAt.getTime();
+
+    await prisma.ticket.update({
+      where: { id: ticketId },
+      data: {
+        claimedById: staffId,
+        claimedByTag: staffTag,
+        claimedAt: now,
+        status: 'CLAIMED',
+        firstResponseAt: ticket.firstResponseAt ?? now,
+        responseTimeMs: ticket.responseTimeMs ?? responseTimeMs,
+      },
+    });
+
+    await AuditService.log({
+      guildId: ticket.guildId,
+      ticketId,
+      actorId: staffId,
+      actorTag: staffTag,
+      action: 'TICKET_CLAIMED',
+    });
+  }
+
+  // â”€â”€ Transfer Ticket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  static async transfer(options: TicketTransferOptions) {
+    const { ticketId, newStaffId, newStaffTag, transferredById, transferredByTag, reason } = options;
+
+    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new Error('Ticket not found');
+
+    await prisma.ticket.update({
+      where: { id: ticketId },
+      data: { claimedById: newStaffId, claimedByTag: newStaffTag, status: 'CLAIMED' },
+    });
+
+    await AuditService.log({
+      guildId: ticket.guildId,
+      ticketId,
+      actorId: transferredById,
+      actorTag: transferredByTag,
+      action: 'TICKET_TRANSFERRED',
+      oldValue: transferredByTag,
+      newValue: newStaffTag,
+      reason,
+    });
+  }
+
+  // â”€â”€ Escalate Ticket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  static async escalate(options: TicketEscalateOptions) {
+    const { ticketId, escalatedById, escalatedByTag, reason, newPriority } = options;
+
+    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new Error('Ticket not found');
+
+    await prisma.ticket.update({
+      where: { id: ticketId },
+      data: {
+        status: 'ESCALATED',
+        priority: newPriority ?? 'URGENT',
+        claimedById: null,
+        claimedByTag: null,
+      },
+    });
+
+    await AuditService.log({
+      guildId: ticket.guildId,
+      ticketId,
+      actorId: escalatedById,
+      actorTag: escalatedByTag,
+      action: 'TICKET_ESCALATED',
+      newValue: newPriority ?? 'URGENT',
+      reason,
+    });
+  }
+
+  // â”€â”€ Update Status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  static async setStatus(ticketId: string, status: TicketStatus, actorId: string, actorTag: string) {
+    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new Error('Ticket not found');
+
+    await prisma.ticket.update({ where: { id: ticketId }, data: { status } });
+
+    await AuditService.log({
+      guildId: ticket.guildId,
+      ticketId,
+      actorId,
+      actorTag,
+      action: 'STATUS_CHANGED',
+      oldValue: ticket.status,
+      newValue: status,
+    });
+  }
+
+  // â”€â”€ Set Priority â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  static async setPriority(ticketId: string, priority: Priority, actorId: string, actorTag: string) {
+    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new Error('Ticket not found');
+
+    await prisma.ticket.update({ where: { id: ticketId }, data: { priority } });
+
+    await AuditService.log({
+      guildId: ticket.guildId,
+      ticketId,
+      actorId,
+      actorTag,
+      action: 'PRIORITY_CHANGED',
+      oldValue: ticket.priority,
+      newValue: priority,
+    });
+  }
+
+  // â”€â”€ Reopen Ticket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  static async reopen(ticketId: string, actorId: string, actorTag: string) {
+    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new Error('Ticket not found');
+    if (ticket.status !== 'CLOSED') throw new Error('Ticket is not closed');
+
+    await prisma.ticket.update({
+      where: { id: ticketId },
+      data: { status: 'OPEN', closedAt: null, closedById: null, closedByTag: null, closeReason: null },
+    });
+
+    await AuditService.log({
+      guildId: ticket.guildId,
+      ticketId,
+      actorId,
+      actorTag,
+      action: 'TICKET_REOPENED',
+    });
+  }
+
+  // â”€â”€ Add Note â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  static async addNote(ticketId: string, authorId: string, authorTag: string, content: string) {
+    return prisma.ticketNote.create({
+      data: { ticketId, authorId, authorTag, content },
+    });
+  }
+
+  // â”€â”€ Add Participant â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  static async addParticipant(ticketId: string, userId: string, userTag: string, addedById: string) {
+    return prisma.ticketParticipant.upsert({
+      where: { ticketId_userId: { ticketId, userId } },
+      update: {},
+      create: { ticketId, userId, userTag, addedById },
+    });
+  }
+
+  // â”€â”€ Remove Participant â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  static async removeParticipant(ticketId: string, userId: string) {
+    return prisma.ticketParticipant.deleteMany({ where: { ticketId, userId } });
+  }
+
+  // â”€â”€ Update Staff Stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  private static async updateStaffStats(guildId: string, staffId: string, staffTag: string, ticket: any) {
+    const responseMs = ticket.responseTimeMs ?? 0;
+    await prisma.staffStats.upsert({
+      where: { guildId_userId: { guildId, userId: staffId } },
+      update: {
+        ticketsClosed: { increment: 1 },
+        totalResponseMs: { increment: BigInt(responseMs) },
+        lastActiveAt: new Date(),
+        userTag: staffTag,
+      },
+      create: {
+        guildId,
+        userId: staffId,
+        userTag: staffTag,
+        ticketsClosed: 1,
+        totalResponseMs: BigInt(responseMs),
+        lastActiveAt: new Date(),
+      },
+    });
+  }
+
+  // â”€â”€ Build Ticket Embed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  static buildTicketEmbed(ticket: any, creatorTag: string): EmbedBuilder {
+    const statusDisplay = TICKET_STATUS_DISPLAY[ticket.status as TicketStatus];
+    const priorityDisplay = PRIORITY_DISPLAY[ticket.priority as Priority];
+
+    return new EmbedBuilder()
+      .setColor(statusDisplay.color)
+      .setTitle(`${statusDisplay.emoji} Ticket #${ticket.ticketNumber} â€” ${ticket.type.replace(/_/g, ' ')}`)
+      .addFields(
+        { name: 'Created by', value: `<@${ticket.creatorId}> (${creatorTag})`, inline: true },
+        { name: 'Status', value: ticketStatusBadge(ticket.status), inline: true },
+        { name: 'Priority', value: priorityBadge(ticket.priority), inline: true },
+        ...(ticket.subject ? [{ name: 'Subject', value: ticket.subject }] : []),
+        ...(ticket.formData ? [{ name: 'Details', value: Object.entries(ticket.formData as Record<string,string>).map(([k,v]) => `**${k}:** ${v}`).join('\n').slice(0, 1024) }] : []),
+      )
+      .setFooter({ text: `Ticket ID: ${ticket.id}` })
+      .setTimestamp();
+  }
+
+  // â”€â”€ Build Action Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  static buildTicketButtons(ticketId: string): ActionRowBuilder<ButtonBuilder> {
+    return new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`ticket:claim:${ticketId}`).setLabel('Claim').setStyle(ButtonStyle.Primary).setEmoji('ðŸ™‹'),
+      new ButtonBuilder().setCustomId(`ticket:close:${ticketId}`).setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('ðŸ”’'),
+      new ButtonBuilder().setCustomId(`ticket:note:${ticketId}`).setLabel('Add Note').setStyle(ButtonStyle.Secondary).setEmoji('ðŸ“'),
+    );
+  }
+}
+

@@ -1,0 +1,28 @@
+{
+  "name": "vaultbot",
+  "version": "1.0.0",
+  "description": "Discord marketplace & ticket bot",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "deploy": "ts-node src/deploy-commands.ts",
+    "restart": "npm run build && npm start"
+    
+  },
+  "dependencies": {
+    "@prisma/client": "^5.10.0",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "prisma": "^5.10.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
