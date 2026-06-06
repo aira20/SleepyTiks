@@ -31,13 +31,19 @@ import {
   canMoveTicket,
   canEscalateTicket,
 } from '../../utils/permissions';
+import { PAYMENT_METHODS } from '../../utils/paymentFee';
+import {
+  setPendingMiddleman,
+  takePendingMiddleman,
+  peekPendingMiddleman,
+} from '../../utils/pendingMiddlemanCache';
 
 export const data = new SlashCommandBuilder()
   .setName('ticket')
   .setDescription('Ticket system (internal — used by panel buttons)');
 
 export async function execute(interaction: ChatInputCommandInteraction) {
-  await interaction.reply({ content: 'Use the ticket panel buttons to open a ticket.', ephemeral: true });
+  await interaction.editReply({ content: 'Use the ticket panel buttons to open a ticket.' });
 }
 
 export async function handleButton(interaction: ButtonInteraction) {
@@ -396,6 +402,70 @@ export async function handleSelect(interaction: StringSelectMenuInteraction) {
     }
     return;
   }
+
+  // ── Middleman: payment-method picker ──────────────────────────────────────
+  if (interaction.customId === 'ticket:payment_method') {
+    const code = interaction.values[0];
+
+    // "Other Bank" → pop a tiny modal asking for the bank name
+    if (code === 'OTHER_BANK') {
+      // Confirm the cached form data is still around before showing the modal
+      if (!peekPendingMiddleman(interaction.guildId!, interaction.user.id)) {
+        await interaction.update({
+          content: '⏰ Your middleman request expired. Please open a new ticket from the panel.',
+          embeds: [],
+          components: [],
+        });
+        return;
+      }
+
+      const modal = new ModalBuilder()
+        .setCustomId('ticket:other_bank')
+        .setTitle('Bank Name')
+        .addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder()
+              .setCustomId('bank_name')
+              .setLabel('Which bank will the buyer use?')
+              .setPlaceholder('e.g. Mandiri, BRI, BNI, CIMB, SeaBank, Jago')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setMinLength(2)
+              .setMaxLength(50),
+          ),
+        );
+
+      await interaction.showModal(modal);
+      return;
+    }
+
+    // All other methods → open the ticket immediately
+    const formData = takePendingMiddleman(interaction.guildId!, interaction.user.id);
+    if (!formData) {
+      await interaction.update({
+        content: '⏰ Your middleman request expired. Please open a new ticket from the panel.',
+        embeds: [],
+        components: [],
+      });
+      return;
+    }
+
+    formData.payment_method_code = code;
+
+    await interaction.update({ content: '⏳ Creating your middleman ticket...', embeds: [], components: [] });
+
+    const member = await interaction.guild!.members.fetch(interaction.user.id);
+    const result = await TicketWorkflow.openTicket(interaction.guild!, member, 'MIDDLEMAN', formData);
+
+    if (!result.success || !result.channelId) {
+      await interaction.editReply({ content: result.message });
+      return;
+    }
+
+    await interaction.editReply({ content: `✅ Ticket created — <#${result.channelId}>` });
+    setTimeout(() => { interaction.deleteReply().catch(() => {}); }, 5_000);
+    return;
+  }
 }
 
 export async function handleModal(interaction: ModalSubmitInteraction) {
@@ -408,6 +478,41 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
     const formData: Record<string, string> = {};
     for (const field of fields.slice(0, 5)) {
       formData[field.id] = interaction.fields.getTextInputValue(field.id);
+    }
+
+    // ── Middleman tickets: collect payment method via select menu before opening ──
+    if (type === 'MIDDLEMAN') {
+      setPendingMiddleman(interaction.guildId!, interaction.user.id, formData);
+
+      const select = new StringSelectMenuBuilder()
+        .setCustomId('ticket:payment_method')
+        .setPlaceholder('Choose how the buyer will pay...')
+        .addOptions(
+          PAYMENT_METHODS.map(m => ({
+            label: m.label,
+            value: m.code,
+            description: m.description,
+            emoji: m.emoji,
+          })),
+        );
+
+      const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+
+      const intro = new EmbedBuilder()
+        .setColor(0xf0b132)
+        .setTitle('💳 Select Payment Method')
+        .setDescription(
+          'Choose the payment method the **buyer** will use. The fee is added on top of the existing middleman fee.',
+        )
+        .addFields(
+          { name: '🏦 BCA / OVO / ShopeePay', value: 'No additional fee',  inline: true },
+          { name: '🟢 GoPay / 🔴 LinkAja',     value: '+ Rp 1.000',         inline: true },
+          { name: '🏛️ Other Bank',             value: '+ Rp 2.500',         inline: true },
+        )
+        .setFooter({ text: 'Fees are calculated server-side and cannot be changed by users.' });
+
+      await interaction.reply({ embeds: [intro], components: [row], ephemeral: true });
+      return;
     }
 
     await interaction.deferReply({ ephemeral: true });
@@ -430,6 +535,44 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
     await interaction.deferReply({ ephemeral: true });
     await TicketManager.addNote(ticketId, interaction.user.id, interaction.user.tag, content);
     await interaction.editReply({ content: 'Note added.' });
+    return;
+  }
+
+  // ── Other Bank: collect bank name then open the middleman ticket ────────
+  if (action === 'other_bank') {
+    const bankName = interaction.fields.getTextInputValue('bank_name').trim();
+
+    const formData = takePendingMiddleman(interaction.guildId!, interaction.user.id);
+    if (!formData) {
+      await interaction.reply({
+        content: '⏰ Your middleman request expired. Please open a new ticket from the panel.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (!bankName) {
+      await interaction.reply({
+        content: '❌ Bank name is required when "Other Bank" is selected.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    formData.payment_method_code = 'OTHER_BANK';
+    formData.payment_method_bank = bankName;
+
+    await interaction.deferReply({ ephemeral: true });
+    const member = await interaction.guild!.members.fetch(interaction.user.id);
+    const result = await TicketWorkflow.openTicket(interaction.guild!, member, 'MIDDLEMAN', formData);
+
+    if (!result.success || !result.channelId) {
+      await interaction.editReply({ content: result.message });
+      return;
+    }
+
+    await interaction.editReply({ content: `✅ Ticket created — <#${result.channelId}>` });
+    setTimeout(() => { interaction.deleteReply().catch(() => {}); }, 5_000);
     return;
   }
 

@@ -24,6 +24,10 @@ import {
   formatIDR,
   type FeeResponsibility,
 } from '../../utils/middlemanFee';
+import {
+  getPaymentMethodFee,
+  formatPaymentMethodLabel,
+} from '../../utils/paymentFee';
 
 const prisma = new PrismaClient();
 
@@ -431,6 +435,13 @@ export class TicketWorkflow {
 
     const calc = calculateMiddlemanFee(amount, feeResponsibility);
 
+    // ── Payment method (collected via post-modal select menu) ───────────────
+    const paymentMethodCode = (ticket as any).formData?.payment_method_code as string | undefined;
+    const paymentBankName   = (ticket as any).formData?.payment_method_bank as string | undefined;
+    const paymentFee        = getPaymentMethodFee(paymentMethodCode);
+    const paymentMethodLabel = formatPaymentMethodLabel(paymentMethodCode, paymentBankName);
+    const finalBuyerPays    = calc.buyerPays + paymentFee;
+
     const feeResponsibilityLabel: Record<typeof feeResponsibility, string> = {
       buyer: 'Buyer Pays Fee',
       seller: 'Seller Pays Fee',
@@ -448,31 +459,46 @@ export class TicketWorkflow {
       .setDescription(this.PAYMENT_INFO)
       .addFields({
         name: 'Instructions',
-        value: `**Buyer** must transfer **Rp ${formatIDR(calc.buyerPays)}** to the account above.\nAfter payment, upload proof of payment in this ticket and wait for staff verification.`,
+        value: `**Buyer** must transfer **Rp ${formatIDR(finalBuyerPays)}** to the account above.\nAfter payment, upload proof of payment in this ticket and wait for staff verification.`,
       });
 
     // ── Embed 2: Transaction summary ──────────────────────────────────────
+    const summaryFields: { name: string; value: string; inline: boolean }[] = [
+      {
+        name: '👥 Participants',
+        value: [
+          `**Creator:** <@${creator.id}>`,
+          `**Buyer:** ${buyer ? `<@${buyer.id}>` : `\`${buyerInput}\` *(not found)*`}`,
+          `**Seller:** ${seller ? `<@${seller.id}>` : `\`${sellerInput}\` *(not found)*`}`,
+        ].join('\n'),
+        inline: false,
+      },
+      { name: '💵 Item Price',        value: `Rp ${formatIDR(calc.amount)}`,        inline: true },
+      { name: '🏦 Middleman Fee',     value: `Rp ${formatIDR(calc.fee)}`,           inline: true },
+      { name: '💳 Payment Fee',       value: `Rp ${formatIDR(paymentFee)}`,         inline: true },
+      { name: '🏧 Payment Method',    value: paymentMethodLabel,                    inline: true },
+      { name: '📋 Fee Responsibility', value: feeResponsibilityLabel[feeResponsibility], inline: true },
+      { name: '🆔 Transaction ID',    value: `\`${transactionId}\``,                inline: true },
+      { name: '💰 Buyer Pays (Total)', value: `**Rp ${formatIDR(finalBuyerPays)}**`, inline: true },
+      { name: '📤 Seller Receives',   value: `Rp ${formatIDR(calc.sellerReceives)}`, inline: true },
+      { name: '​',               value: '​',                              inline: true },
+      { name: '📊 Status',            value: '⏳ Awaiting Payment',                 inline: false },
+    ];
+
     const summaryEmbed = new EmbedBuilder()
       .setColor(Colors.PRIMARY)
       .setTitle('💰 Transaction Summary')
-      .addFields(
-        {
-          name: '👥 Participants',
-          value: [
-            `**Creator:** <@${creator.id}>`,
-            `**Buyer:** ${buyer ? `<@${buyer.id}>` : `\`${buyerInput}\` *(not found)*`}`,
-            `**Seller:** ${seller ? `<@${seller.id}>` : `\`${sellerInput}\` *(not found)*`}`,
-          ].join('\n'),
-          inline: false,
-        },
-        { name: '💵 Transaction Amount', value: `Rp ${formatIDR(calc.amount)}`, inline: true },
-        { name: '🏦 Middleman Fee', value: `Rp ${formatIDR(calc.fee)}`, inline: true },
-        { name: '📋 Fee Responsibility', value: feeResponsibilityLabel[feeResponsibility], inline: true },
-        { name: '💳 Buyer Pays', value: `**Rp ${formatIDR(calc.buyerPays)}**`, inline: true },
-        { name: '📤 Seller Receives', value: `Rp ${formatIDR(calc.sellerReceives)}`, inline: true },
-        { name: '🆔 Transaction ID', value: `\`${transactionId}\``, inline: true },
-        { name: '📊 Status', value: '⏳ Awaiting Payment', inline: false },
+      .setDescription(
+        '```\n' +
+        `Item Price      : Rp ${formatIDR(calc.amount)}\n` +
+        `Middleman Fee   : Rp ${formatIDR(calc.fee)}\n` +
+        `Payment Fee     : Rp ${formatIDR(paymentFee)}\n` +
+        `Payment Method  : ${paymentMethodLabel}\n` +
+        '─────────────────────────────\n' +
+        `Final Total     : Rp ${formatIDR(finalBuyerPays)}\n` +
+        '```'
       )
+      .addFields(summaryFields)
       .setFooter({ text: 'Do not send payment until a staff member has verified both parties.' })
       .setTimestamp();
 

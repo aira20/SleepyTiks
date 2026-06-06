@@ -7,12 +7,9 @@ import {
   RoleSelectMenuInteraction,
   ChannelSelectMenuInteraction,
 } from 'discord.js';
-import { PrismaClient } from '@prisma/client';
 import { ExtendedClient } from '../bot/client';
 import { checkCommandPermissions } from '../bot/permissions';
 import { logger } from '../utils/logger';
-
-const prisma = new PrismaClient();
 
 export default {
   name: 'interactionCreate',
@@ -22,14 +19,6 @@ export default {
       if (interaction.isChatInputCommand()) {
         const command = client.commands.get(interaction.commandName);
         if (!command) return;
-
-        if (interaction.guildId) {
-          await prisma.guild.upsert({
-            where: { id: interaction.guildId },
-            update: {},
-            create: { id: interaction.guildId, name: interaction.guild?.name ?? 'Unknown' },
-          });
-        }
 
         const allowed = await checkCommandPermissions(interaction as ChatInputCommandInteraction, command);
         if (!allowed) return;

@@ -2,7 +2,13 @@ import { client, ExtendedClient } from './bot/client';
 import { loadCommands, loadEvents } from './bot/registry';
 import { logger } from './utils/logger';
 import * as dotenv from 'dotenv';
-dotenv.config();
+
+dotenv.config({
+  path:
+    process.env.NODE_ENV === 'production'
+      ? '.env.production'
+      : '.env.development',
+});
 
 async function main() {
   const extended = client as ExtendedClient;

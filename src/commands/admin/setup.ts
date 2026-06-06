@@ -14,6 +14,8 @@ export const data = new SlashCommandBuilder()
   .addChannelOption(o => o.setName('report-category').setDescription('Category for report tickets').setRequired(false).addChannelTypes(ChannelType.GuildCategory));
 
 export async function execute(interaction: ChatInputCommandInteraction) {
+  await interaction.deferReply({ ephemeral: true });
+
   const logChannel        = interaction.options.getChannel('log-channel',        true);
   const ticketCategory    = interaction.options.getChannel('ticket-category',    true);
   const staffRole         = interaction.options.getRole('staff-role',            true);
@@ -43,7 +45,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     },
   });
 
-  await interaction.reply({
+  await interaction.editReply({
     embeds: [successEmbed(
       'Bot setup complete!\n\n' +
       `Log channel: <#${logChannel.id}>\n` +
@@ -51,6 +53,5 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       `Staff role: <@&${staffRole.id}>\n\n` +
       'Use **/panel** to post the ticket panel.'
     )],
-    ephemeral: true,
   });
 }
