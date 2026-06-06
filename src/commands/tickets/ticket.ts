@@ -505,7 +505,7 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
           'Choose the payment method the **buyer** will use. The fee is added on top of the existing middleman fee.',
         )
         .addFields(
-          { name: '🏦 BCA / OVO / ShopeePay', value: 'No additional fee',  inline: true },
+          { name: '🏦 BCA / OVO / ShopeePay / DANA', value: 'No additional fee',  inline: true },
           { name: '🟢 GoPay / 🔴 LinkAja',     value: '+ Rp 1.000',         inline: true },
           { name: '🏛️ Other Bank',             value: '+ Rp 2.500',         inline: true },
         )

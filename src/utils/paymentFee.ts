@@ -11,6 +11,7 @@ export type PaymentMethodCode =
   | 'BCA'
   | 'OVO'
   | 'SHOPEEPAY'
+  | 'DANA'
   | 'GOPAY'
   | 'LINKAJA'
   | 'OTHER_BANK';
@@ -33,6 +34,7 @@ export const PAYMENT_METHODS: readonly PaymentMethod[] = [
   { code: 'BCA',        label: 'BCA',        description: 'Bank Central Asia — no extra fee',          emoji: '🏦', fee: 0,     requiresBankName: false },
   { code: 'OVO',        label: 'OVO',        description: 'OVO e-wallet — no extra fee',               emoji: '💜', fee: 0,     requiresBankName: false },
   { code: 'SHOPEEPAY',  label: 'ShopeePay',  description: 'ShopeePay e-wallet — no extra fee',         emoji: '🛒', fee: 0,     requiresBankName: false },
+  { code: 'DANA',       label: 'DANA',       description: 'DANA e-wallet — no extra fee',              emoji: '🔵', fee: 0,     requiresBankName: false },
   { code: 'GOPAY',      label: 'GoPay',      description: 'GoPay e-wallet — Rp1.000 transfer fee',     emoji: '🟢', fee: 1_000, requiresBankName: false },
   { code: 'LINKAJA',    label: 'LinkAja',    description: 'LinkAja e-wallet — Rp1.000 transfer fee',   emoji: '🔴', fee: 1_000, requiresBankName: false },
   { code: 'OTHER_BANK', label: 'Other Bank', description: 'Mandiri, BRI, BNI, CIMB, etc. — Rp2.500',   emoji: '🏛️', fee: 2_500, requiresBankName: true  },
