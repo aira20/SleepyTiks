@@ -23,7 +23,7 @@ export class NotificationService {
       const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
       if (!ticket) return;
 
-      const t = getLocale((ticket as any).language);
+      const t = getLocale((ticket.formData as any)?._lang);
       const guildName = client.guilds.cache.get(ticket.guildId)?.name ?? '';
 
       const embed = new EmbedBuilder()

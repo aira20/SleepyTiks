@@ -26,8 +26,6 @@ export class TicketManager {
 
     const count = await prisma.ticket.count({ where: { guildId } });
     const ticketNumber = count + 1;
-    const language = (formData as any)?._lang ?? 'en';
-
     const ticket = await prisma.ticket.create({
       data: {
         guildId,
@@ -37,14 +35,13 @@ export class TicketManager {
         type,
         status: 'OPEN',
         priority: 'NORMAL',
-        language,
         creatorId,
         creatorTag,
         formData: formData ?? {},
       },
     });
 
-    const t = getLocale(language);
+    const t = getLocale((formData as any)?._lang);
     const embed = this.buildTicketEmbed(ticket as any, creatorTag, t);
     const row = this.buildTicketButtons(ticket.id, t);
 
@@ -90,7 +87,7 @@ export class TicketManager {
 
       await channel.permissionOverwrites.edit(ticket.guildId, { SendMessages: false });
 
-      const t = getLocale((ticket as any).language);
+      const t = getLocale((ticket.formData as any)?._lang);
 
       const embed = new EmbedBuilder()
         .setColor(Colors.NEUTRAL)
@@ -273,7 +270,7 @@ export class TicketManager {
   }
 
   static getTicketLanguage(ticket: any): string {
-    return ticket?.language ?? 'en';
+    return (ticket?.formData as any)?._lang ?? 'en';
   }
 
   private static async updateStaffStats(guildId: string, staffId: string, staffTag: string, ticket: { responseTimeSec: number | null }) {

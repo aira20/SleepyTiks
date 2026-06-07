@@ -49,8 +49,8 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 }
 
 async function ticketLang(ticketId: string): Promise<string> {
-  const t = await prisma.ticket.findUnique({ where: { id: ticketId }, select: { language: true } });
-  return (t as any)?.language ?? 'en';
+  const t = await prisma.ticket.findUnique({ where: { id: ticketId }, select: { formData: true } });
+  return (t?.formData as any)?._lang ?? 'en';
 }
 
 export async function handleButton(interaction: ButtonInteraction) {
@@ -462,7 +462,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction) {
       return;
     }
 
-    const t = getLocale((ticket as any).language ?? 'en');
+    const t = getLocale((ticket.formData as any)?._lang ?? 'en');
 
     try {
       const fetched = await client.channels.fetch(ticket.channelId);

@@ -11,7 +11,8 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "deploy": "ts-node src/deploy-commands.ts",
-    "restart": "npm run build && npm start"
+    "restart": "npm run build && npm start",
+    "server:start": "npm install && npx prisma generate && npm run build && npm start"
     
   },
   "dependencies": {
