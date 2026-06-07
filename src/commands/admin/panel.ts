@@ -1,4 +1,11 @@
-import { ChatInputCommandInteraction, SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import {
+  ChatInputCommandInteraction,
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+} from 'discord.js';
 import { Colors } from '../../types';
 
 export const data = new SlashCommandBuilder()
@@ -8,28 +15,24 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(interaction: ChatInputCommandInteraction) {
   const embed = new EmbedBuilder()
-    .setTitle('Support & Marketplace Tickets')
-    .setDescription(
-      'Need help or want to start a trade?\n\n' +
-      'Purchase - Buy products or services\n' +
-      'Middleman - Secure trades with a middleman\n' +
-      'Report - Report a scammer or issue\n' +
-      'Support - General support request\n\n' +
-      'Click a button below to open a ticket.'
-    )
+    .setTitle('🎫 Create a Ticket')
+    .setDescription('Select your language to get started.\n\nPilih bahasa Anda untuk memulai.')
     .setColor(Colors.PRIMARY);
 
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId('ticket:PURCHASE').setLabel('Purchase').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('ticket:MIDDLEMAN').setLabel('Middleman').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId('ticket:REPORT').setLabel('Report').setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId('ticket:SUPPORT').setLabel('Support').setStyle(ButtonStyle.Secondary),
+  const langRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('ticket:lang_select')
+      .setPlaceholder('Language / Bahasa')
+      .addOptions([
+        { label: '🇺🇸 English', value: 'en' },
+        { label: '🇮🇩 Indonesia', value: 'id' },
+      ]),
   );
 
   if (!interaction.channel || !interaction.channel.isSendable()) {
     return interaction.reply({ content: 'This command must be run in a sendable text channel.', ephemeral: true });
   }
 
-  await interaction.channel.send({ embeds: [embed], components: [row] });
+  await interaction.channel.send({ embeds: [embed], components: [langRow] });
   await interaction.reply({ content: 'Panel posted!', ephemeral: true });
 }

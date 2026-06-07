@@ -10,6 +10,7 @@ import {
   ButtonStyle,
 } from 'discord.js';
 import { PrismaClient, TicketType, Guild } from '@prisma/client';
+import { getLocale } from '../../locales';
 import { TicketManager } from './TicketManager';
 import { AccountAnalyzer } from '../antiscam/AccountAnalyzer';
 import { PatternDetector } from '../antiscam/PatternDetector';
@@ -397,8 +398,10 @@ export class TicketWorkflow {
       return;
     }
 
+    const t = getLocale(formData._lang);
+
     const descriptions: Partial<Record<TicketType, string>> = {
-      SUPPORT: 'Please describe your issue in detail. A staff member will assist you shortly.',
+      SUPPORT: t.ticket.welcome,
       REPORT: 'Your report has been received. Please provide any additional evidence below. Staff will review shortly.',
       REFUND: 'Your refund request has been received. Please provide your transaction details below.',
       APPEAL: 'Your appeal has been received. Please provide your full explanation below.',
@@ -414,7 +417,7 @@ export class TicketWorkflow {
       .setColor(Colors.PRIMARY)
       .setTitle(`${type.replace(/_/g, ' ')} Ticket #${ticket.ticketNumber}`)
       .setDescription(description)
-      .addFields({ name: 'Opened by', value: `<@${creator.id}>` })
+      .addFields({ name: t.ticket.openedBy, value: `<@${creator.id}>` })
       .setFooter({ text: `Ticket ID: ${ticket.id}` })
       .setTimestamp();
 

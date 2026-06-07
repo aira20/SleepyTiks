@@ -37,6 +37,8 @@ import {
   takePendingMiddleman,
   peekPendingMiddleman,
 } from '../../utils/pendingMiddlemanCache';
+import { getLocale, type SupportedLocale } from '../../locales';
+import { Colors } from '../../types';
 
 export const data = new SlashCommandBuilder()
   .setName('ticket')
@@ -50,41 +52,75 @@ export async function handleButton(interaction: ButtonInteraction) {
   const parts = interaction.customId.split(':');
   const action = parts[1];
 
-  // ── Panel open buttons: ticket:PURCHASE, ticket:SUPPORT, etc. ────────────
-  const OPEN_TYPES: Record<string, TicketType> = {
-    PURCHASE:  'PURCHASE',
-    MIDDLEMAN: 'MIDDLEMAN',
-    REPORT:    'REPORT',
-    SUPPORT:   'SUPPORT',
-  };
+  // ── Panel open buttons: ticket:open:TYPE:lang ─────────────────────────────
+  if (action === 'open') {
+    const type = parts[2] as TicketType;
+    const lang = (parts[3] ?? 'en') as SupportedLocale;
+    const t = getLocale(lang);
 
-  if (action in OPEN_TYPES) {
-    const type = OPEN_TYPES[action];
-    const fields = TICKET_FORMS[type];
-    if (!fields || fields.length === 0) {
-      await interaction.reply({ content: 'This ticket type has no form configured.', ephemeral: true });
+    if (type === 'MIDDLEMAN') {
+      const fields = TICKET_FORMS['MIDDLEMAN'];
+      const modal = new ModalBuilder()
+        .setCustomId(`ticket:modal:MIDDLEMAN:${lang}`)
+        .setTitle('Open Middleman Ticket');
+
+      const rows = fields.slice(0, 5).map(f =>
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId(f.id)
+            .setLabel(f.label)
+            .setPlaceholder(f.placeholder ?? '')
+            .setRequired(f.required)
+            .setStyle(f.style === 'PARAGRAPH' ? TextInputStyle.Paragraph : TextInputStyle.Short)
+            .setMinLength(f.minLength ?? 0)
+            .setMaxLength(f.maxLength ?? 1000),
+        )
+      );
+      modal.addComponents(...rows);
+      await interaction.showModal(modal);
       return;
     }
 
-    const modal = new ModalBuilder()
-      .setCustomId(`ticket:modal:${type}`)
-      .setTitle(`Open ${type.charAt(0) + type.slice(1).toLowerCase()} Ticket`);
+    if (type === 'SUPPORT') {
+      const modal = new ModalBuilder()
+        .setCustomId(`ticket:modal:SUPPORT:${lang}`)
+        .setTitle(t.modal.supportTitle);
 
-    const rows = fields.slice(0, 5).map(f =>
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId(f.id)
-          .setLabel(f.label)
-          .setPlaceholder(f.placeholder ?? '')
-          .setRequired(f.required)
-          .setStyle(f.style === 'PARAGRAPH' ? TextInputStyle.Paragraph : TextInputStyle.Short)
-          .setMinLength(f.minLength ?? 0)
-          .setMaxLength(f.maxLength ?? 1000),
-      )
-    );
+      modal.addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId('subject')
+            .setLabel(t.modal.subject)
+            .setPlaceholder(t.modal.subjectPlaceholder)
+            .setRequired(true)
+            .setStyle(TextInputStyle.Short)
+            .setMaxLength(100),
+        ),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId('description')
+            .setLabel(t.modal.description)
+            .setPlaceholder(t.modal.descriptionPlaceholder)
+            .setRequired(true)
+            .setStyle(TextInputStyle.Paragraph)
+            .setMinLength(20)
+            .setMaxLength(1000),
+        ),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId('attempted')
+            .setLabel(t.modal.attempted)
+            .setPlaceholder(t.modal.attemptedPlaceholder)
+            .setRequired(false)
+            .setStyle(TextInputStyle.Paragraph)
+            .setMaxLength(500),
+        ),
+      );
+      await interaction.showModal(modal);
+      return;
+    }
 
-    modal.addComponents(...rows);
-    await interaction.showModal(modal);
+    await interaction.reply({ content: 'Unknown ticket type.', ephemeral: true });
     return;
   }
 
@@ -95,7 +131,6 @@ export async function handleButton(interaction: ButtonInteraction) {
     return;
   }
 
-  // Fetch guild config and member for permission checks
   const guildConfig = await prisma.guild.findUnique({ where: { id: interaction.guildId! } });
   if (!guildConfig) {
     await interaction.reply({ content: 'Bot is not configured for this server.', ephemeral: true });
@@ -194,7 +229,6 @@ export async function handleButton(interaction: ButtonInteraction) {
     return;
   }
 
-  // ── Move ticket: show category select menu ────────────────────────────────
   if (action === 'move') {
     if (!canMoveTicket(member, guildConfig)) {
       await interaction.reply({ content: '❌ Only staff can move tickets.', ephemeral: true });
@@ -235,7 +269,6 @@ export async function handleButton(interaction: ButtonInteraction) {
     return;
   }
 
-  // ── Funds Received ────────────────────────────────────────────────────────
   if (action === 'funds_received') {
     if (!canClaimTicket(member, guildConfig)) {
       await interaction.reply({ content: '❌ Only staff can confirm funds received.', ephemeral: true });
@@ -243,7 +276,6 @@ export async function handleButton(interaction: ButtonInteraction) {
     }
     await interaction.deferUpdate();
 
-    // Disable the button immediately to prevent duplicate clicks
     const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`ticket:funds_received:${ticketId}`)
@@ -253,14 +285,12 @@ export async function handleButton(interaction: ButtonInteraction) {
         .setDisabled(true),
     );
 
-    // Rebuild the summary embed with updated status
     const receivedAt = Math.floor(Date.now() / 1000);
     const originalEmbeds = interaction.message.embeds;
 
     const updatedEmbeds = originalEmbeds.map((e, i) => {
-      if (i !== 1) return EmbedBuilder.from(e); // only modify summary embed (index 1)
+      if (i !== 1) return EmbedBuilder.from(e);
       const rebuilt = EmbedBuilder.from(e);
-      // Replace the Status field
       const fields = e.fields.map(f =>
         f.name === '📊 Status'
           ? { name: '📊 Status', value: '✅ Funds Received', inline: false }
@@ -277,7 +307,6 @@ export async function handleButton(interaction: ButtonInteraction) {
 
     await interaction.editReply({ embeds: updatedEmbeds, components: [disabledRow] });
 
-    // Post confirmation message in ticket
     const ch = interaction.channel;
     if (ch && !ch.isDMBased() && 'send' in ch) {
       await (ch as import('discord.js').TextChannel).send({
@@ -287,7 +316,6 @@ export async function handleButton(interaction: ButtonInteraction) {
     return;
   }
 
-  // ── Delete confirmation prompt ────────────────────────────────────────────
   if (action === 'delete_confirm') {
     if (!canDeleteTicket(member, guildConfig)) {
       await interaction.reply({ content: '❌ Only admins can delete tickets.', ephemeral: true });
@@ -312,14 +340,12 @@ export async function handleButton(interaction: ButtonInteraction) {
     return;
   }
 
-  // ── Confirmed delete ──────────────────────────────────────────────────────
   if (action === 'delete') {
     await interaction.deferUpdate();
 
     const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
     if (!ticket) { await interaction.editReply({ content: 'Ticket not found.', embeds: [], components: [] }); return; }
 
-    // Generate and upload transcript to log channel if configured
     try {
       const guild = await prisma.guild.findUnique({ where: { id: ticket.guildId } });
       if (guild?.logChannelId) {
@@ -346,18 +372,14 @@ export async function handleButton(interaction: ButtonInteraction) {
       }
     } catch (err) {
       logger.error('[Ticket] Transcript upload failed', err);
-      // Non-fatal — continue with deletion
     }
 
-    // Delete the channel
     try {
       const fetched = await client.channels.fetch(ticket.channelId);
       if (fetched) await fetched.delete();
     } catch {}
 
-    // Mark as archived in DB
     await prisma.ticket.update({ where: { id: ticketId }, data: { status: 'ARCHIVED' } });
-
     await interaction.editReply({ content: '🗑️ Ticket deleted.', embeds: [], components: [] });
     return;
   }
@@ -366,6 +388,32 @@ export async function handleButton(interaction: ButtonInteraction) {
 }
 
 export async function handleSelect(interaction: StringSelectMenuInteraction) {
+  // ── Language selection from panel → show ticket type buttons ─────────────
+  if (interaction.customId === 'ticket:lang_select') {
+    const lang = interaction.values[0] as SupportedLocale;
+    const t = getLocale(lang);
+
+    const embed = new EmbedBuilder()
+      .setTitle('🎫 ' + t.panel.title)
+      .setDescription(t.panel.description)
+      .setColor(Colors.PRIMARY);
+
+    const btnRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`ticket:open:MIDDLEMAN:${lang}`)
+        .setLabel(t.ticketTypes.middleman.label)
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`ticket:open:SUPPORT:${lang}`)
+        .setLabel(t.ticketTypes.tickets.label)
+        .setStyle(ButtonStyle.Secondary),
+    );
+
+    await interaction.reply({ embeds: [embed], components: [btnRow], ephemeral: true });
+    return;
+  }
+
+  // ── Move ticket: category select ──────────────────────────────────────────
   if (interaction.customId === 'ticket:move_select') {
     await interaction.deferUpdate();
 
@@ -407,9 +455,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction) {
   if (interaction.customId === 'ticket:payment_method') {
     const code = interaction.values[0];
 
-    // "Other Bank" → pop a tiny modal asking for the bank name
     if (code === 'OTHER_BANK') {
-      // Confirm the cached form data is still around before showing the modal
       if (!peekPendingMiddleman(interaction.guildId!, interaction.user.id)) {
         await interaction.update({
           content: '⏰ Your middleman request expired. Please open a new ticket from the panel.',
@@ -439,7 +485,6 @@ export async function handleSelect(interaction: StringSelectMenuInteraction) {
       return;
     }
 
-    // All other methods → open the ticket immediately
     const formData = takePendingMiddleman(interaction.guildId!, interaction.user.id);
     if (!formData) {
       await interaction.update({
@@ -455,6 +500,8 @@ export async function handleSelect(interaction: StringSelectMenuInteraction) {
     await interaction.update({ content: '⏳ Creating your middleman ticket...', embeds: [], components: [] });
 
     const member = await interaction.guild!.members.fetch(interaction.user.id);
+    const lang = (formData._lang as SupportedLocale) ?? 'en';
+    const t = getLocale(lang);
     const result = await TicketWorkflow.openTicket(interaction.guild!, member, 'MIDDLEMAN', formData);
 
     if (!result.success || !result.channelId) {
@@ -462,7 +509,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction) {
       return;
     }
 
-    await interaction.editReply({ content: `✅ Ticket created — <#${result.channelId}>` });
+    await interaction.editReply({ content: t.ticket.created(result.channelId) });
     setTimeout(() => { interaction.deleteReply().catch(() => {}); }, 5_000);
     return;
   }
@@ -474,13 +521,18 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
 
   if (action === 'modal') {
     const type = parts[2] as TicketType;
+    // parts[3] is the language code, falls back to 'en'
+    const lang = (parts[3] ?? 'en') as SupportedLocale;
+    const t = getLocale(lang);
+
     const fields = TICKET_FORMS[type] ?? [];
     const formData: Record<string, string> = {};
     for (const field of fields.slice(0, 5)) {
       formData[field.id] = interaction.fields.getTextInputValue(field.id);
     }
+    // store language for downstream use
+    formData._lang = lang;
 
-    // ── Middleman tickets: collect payment method via select menu before opening ──
     if (type === 'MIDDLEMAN') {
       setPendingMiddleman(interaction.guildId!, interaction.user.id, formData);
 
@@ -505,9 +557,9 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
           'Choose the payment method the **buyer** will use. The fee is added on top of the existing middleman fee.',
         )
         .addFields(
-          { name: '🏦 BCA / OVO / ShopeePay / DANA', value: 'No additional fee',  inline: true },
-          { name: '🟢 GoPay / 🔴 LinkAja',     value: '+ Rp 1.000',         inline: true },
-          { name: '🏛️ Other Bank',             value: '+ Rp 2.500',         inline: true },
+          { name: '🏦 BCA / OVO / ShopeePay / DANA', value: 'No additional fee', inline: true },
+          { name: '🟢 GoPay / 🔴 LinkAja',           value: '+ Rp 1.000',        inline: true },
+          { name: '🏛️ Other Bank',                   value: '+ Rp 2.500',        inline: true },
         )
         .setFooter({ text: 'Fees are calculated server-side and cannot be changed by users.' });
 
@@ -515,6 +567,7 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
       return;
     }
 
+    // SUPPORT (and any other types opened via this flow)
     await interaction.deferReply({ ephemeral: true });
     const member = await interaction.guild!.members.fetch(interaction.user.id);
     const result = await TicketWorkflow.openTicket(interaction.guild!, member, type, formData);
@@ -524,7 +577,7 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
       return;
     }
 
-    await interaction.editReply({ content: `✅ Ticket created — <#${result.channelId}>` });
+    await interaction.editReply({ content: t.ticket.created(result.channelId) });
     setTimeout(() => { interaction.deleteReply().catch(() => {}); }, 5_000);
     return;
   }
@@ -538,7 +591,6 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
     return;
   }
 
-  // ── Other Bank: collect bank name then open the middleman ticket ────────
   if (action === 'other_bank') {
     const bankName = interaction.fields.getTextInputValue('bank_name').trim();
 
@@ -564,6 +616,8 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
 
     await interaction.deferReply({ ephemeral: true });
     const member = await interaction.guild!.members.fetch(interaction.user.id);
+    const lang = (formData._lang as SupportedLocale) ?? 'en';
+    const t = getLocale(lang);
     const result = await TicketWorkflow.openTicket(interaction.guild!, member, 'MIDDLEMAN', formData);
 
     if (!result.success || !result.channelId) {
@@ -571,7 +625,7 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
       return;
     }
 
-    await interaction.editReply({ content: `✅ Ticket created — <#${result.channelId}>` });
+    await interaction.editReply({ content: t.ticket.created(result.channelId) });
     setTimeout(() => { interaction.deleteReply().catch(() => {}); }, 5_000);
     return;
   }
