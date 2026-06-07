@@ -57,26 +57,11 @@ export async function handleButton(interaction: ButtonInteraction) {
   const parts = interaction.customId.split(':');
   const action = parts[1];
 
-  // ── Step 1: type selected → show language dropdown ────────────────────────
+  // ── Step 2: type selected → open modal ───────────────────────────────────
   if (action === 'type') {
     const type = parts[2] as TicketType;
-
-    const embed = new EmbedBuilder()
-      .setTitle('🌐 Language / Bahasa')
-      .setDescription('Please select your language.\nSilakan pilih bahasa Anda.')
-      .setColor(Colors.PRIMARY);
-
-    const langRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      new StringSelectMenuBuilder()
-        .setCustomId(`ticket:lang_select:${type}`)
-        .setPlaceholder('Language / Bahasa')
-        .addOptions([
-          { label: '🇺🇸 English', value: 'en' },
-          { label: '🇮🇩 Indonesia', value: 'id' },
-        ]),
-    );
-
-    await interaction.reply({ embeds: [embed], components: [langRow], ephemeral: true });
+    const lang = (parts[3] ?? 'en') as SupportedLocale;
+    await openTicketModal(interaction, type, lang);
     return;
   }
 
@@ -428,19 +413,36 @@ async function openTicketModal(
 }
 
 export async function handleSelect(interaction: StringSelectMenuInteraction) {
-  // ── Step 2: language selected → open modal for the chosen type ────────────
+  // ── Step 1: panel language selected → show type buttons ──────────────────
+  if (interaction.customId === 'ticket:panel_lang') {
+    const lang = interaction.values[0] as SupportedLocale;
+    const t = getLocale(lang);
+
+    const embed = new EmbedBuilder()
+      .setTitle('🎫 Create a Ticket')
+      .setDescription('Choose a ticket type to get started.\n\nPilih jenis tiket untuk memulai.')
+      .setColor(Colors.PRIMARY);
+
+    const typeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`ticket:type:MIDDLEMAN:${lang}`)
+        .setLabel(t.ticketTypes.middleman.label)
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`ticket:type:SUPPORT:${lang}`)
+        .setLabel(t.ticketTypes.tickets.label)
+        .setStyle(ButtonStyle.Secondary),
+    );
+
+    await interaction.reply({ embeds: [embed], components: [typeRow], ephemeral: true });
+    return;
+  }
+
+  // ── Step 2: language selected (legacy flow) → open modal ─────────────────
   if (interaction.customId.startsWith('ticket:lang_select:')) {
     const type = interaction.customId.split(':')[2] as TicketType;
     const lang = interaction.values[0] as SupportedLocale;
-
-    // Dismiss the language dropdown ephemerally and show the modal
-    // We need to respond with showModal — update first isn't possible with modals,
-    // so we use a follow-up approach via deferUpdate then showModal via a button trick.
-    // Instead: reply with the modal directly by converting to a button click isn't possible
-    // from a select menu. We must use interaction.showModal directly.
-    await interaction.showModal(
-      await buildModal(type, lang)
-    );
+    await interaction.showModal(await buildModal(type, lang));
     return;
   }
 

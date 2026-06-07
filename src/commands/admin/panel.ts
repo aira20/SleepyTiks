@@ -4,8 +4,7 @@ import {
   PermissionFlagsBits,
   EmbedBuilder,
   ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
+  StringSelectMenuBuilder,
 } from 'discord.js';
 import { Colors } from '../../types';
 
@@ -17,18 +16,17 @@ export const data = new SlashCommandBuilder()
 export async function execute(interaction: ChatInputCommandInteraction) {
   const embed = new EmbedBuilder()
     .setTitle('🎫 Create a Ticket')
-    .setDescription('Choose a ticket type to get started.\n\nPilih jenis tiket untuk memulai.')
+    .setDescription('Select your language to get started.\n\nPilih bahasa Anda untuk memulai.')
     .setColor(Colors.PRIMARY);
 
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId('ticket:type:MIDDLEMAN')
-      .setLabel('Middleman')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId('ticket:type:SUPPORT')
-      .setLabel('Tickets')
-      .setStyle(ButtonStyle.Secondary),
+  const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('ticket:panel_lang')
+      .setPlaceholder('Language / Bahasa')
+      .addOptions([
+        { label: '🇺🇸 English', value: 'en' },
+        { label: '🇮🇩 Indonesia', value: 'id' },
+      ]),
   );
 
   if (!interaction.channel || !interaction.channel.isSendable()) {

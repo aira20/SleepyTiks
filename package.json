@@ -4,7 +4,7 @@
   "description": "Discord marketplace & ticket bot",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "db:generate": "prisma generate",
