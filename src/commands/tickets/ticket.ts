@@ -48,7 +48,6 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   await interaction.editReply({ content: 'Use the ticket panel buttons to open a ticket.' });
 }
 
-// Helper: fetch ticket language from DB, default to 'en'
 async function ticketLang(ticketId: string): Promise<string> {
   const t = await prisma.ticket.findUnique({ where: { id: ticketId }, select: { language: true } });
   return (t as any)?.language ?? 'en';
@@ -58,75 +57,34 @@ export async function handleButton(interaction: ButtonInteraction) {
   const parts = interaction.customId.split(':');
   const action = parts[1];
 
-  // ── Panel open buttons: ticket:open:TYPE:lang ─────────────────────────────
+  // ── Step 1: type selected → show language dropdown ────────────────────────
+  if (action === 'type') {
+    const type = parts[2] as TicketType;
+
+    const embed = new EmbedBuilder()
+      .setTitle('🌐 Language / Bahasa')
+      .setDescription('Please select your language.\nSilakan pilih bahasa Anda.')
+      .setColor(Colors.PRIMARY);
+
+    const langRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId(`ticket:lang_select:${type}`)
+        .setPlaceholder('Language / Bahasa')
+        .addOptions([
+          { label: '🇺🇸 English', value: 'en' },
+          { label: '🇮🇩 Indonesia', value: 'id' },
+        ]),
+    );
+
+    await interaction.reply({ embeds: [embed], components: [langRow], ephemeral: true });
+    return;
+  }
+
+  // ── Step 3 (open buttons kept for backward compat): ticket:open:TYPE:lang ─
   if (action === 'open') {
     const type = parts[2] as TicketType;
     const lang = (parts[3] ?? 'en') as SupportedLocale;
-    const t = getLocale(lang);
-
-    if (type === 'MIDDLEMAN') {
-      const fields = TICKET_FORMS['MIDDLEMAN'];
-      const modal = new ModalBuilder()
-        .setCustomId(`ticket:modal:MIDDLEMAN:${lang}`)
-        .setTitle('Open Middleman Ticket');
-
-      const rows = fields.slice(0, 5).map(f =>
-        new ActionRowBuilder<TextInputBuilder>().addComponents(
-          new TextInputBuilder()
-            .setCustomId(f.id)
-            .setLabel(f.label)
-            .setPlaceholder(f.placeholder ?? '')
-            .setRequired(f.required)
-            .setStyle(f.style === 'PARAGRAPH' ? TextInputStyle.Paragraph : TextInputStyle.Short)
-            .setMinLength(f.minLength ?? 0)
-            .setMaxLength(f.maxLength ?? 1000),
-        )
-      );
-      modal.addComponents(...rows);
-      await interaction.showModal(modal);
-      return;
-    }
-
-    if (type === 'SUPPORT') {
-      const modal = new ModalBuilder()
-        .setCustomId(`ticket:modal:SUPPORT:${lang}`)
-        .setTitle(t.modal.supportTitle);
-
-      modal.addComponents(
-        new ActionRowBuilder<TextInputBuilder>().addComponents(
-          new TextInputBuilder()
-            .setCustomId('subject')
-            .setLabel(t.modal.subject)
-            .setPlaceholder(t.modal.subjectPlaceholder)
-            .setRequired(true)
-            .setStyle(TextInputStyle.Short)
-            .setMaxLength(100),
-        ),
-        new ActionRowBuilder<TextInputBuilder>().addComponents(
-          new TextInputBuilder()
-            .setCustomId('description')
-            .setLabel(t.modal.description)
-            .setPlaceholder(t.modal.descriptionPlaceholder)
-            .setRequired(true)
-            .setStyle(TextInputStyle.Paragraph)
-            .setMinLength(20)
-            .setMaxLength(1000),
-        ),
-        new ActionRowBuilder<TextInputBuilder>().addComponents(
-          new TextInputBuilder()
-            .setCustomId('attempted')
-            .setLabel(t.modal.attempted)
-            .setPlaceholder(t.modal.attemptedPlaceholder)
-            .setRequired(false)
-            .setStyle(TextInputStyle.Paragraph)
-            .setMaxLength(500),
-        ),
-      );
-      await interaction.showModal(modal);
-      return;
-    }
-
-    await interaction.reply({ content: 'Unknown ticket type.', ephemeral: true });
+    await openTicketModal(interaction, type, lang);
     return;
   }
 
@@ -396,29 +354,93 @@ export async function handleButton(interaction: ButtonInteraction) {
   await interaction.reply({ content: t.ticket.unknownAction, ephemeral: true });
 }
 
-export async function handleSelect(interaction: StringSelectMenuInteraction) {
-  // ── Language selection from panel → show ticket type buttons ─────────────
-  if (interaction.customId === 'ticket:lang_select') {
-    const lang = interaction.values[0] as SupportedLocale;
-    const t = getLocale(lang);
+// ── Shared helper: show modal for a given type + language ──────────────────
+async function openTicketModal(
+  interaction: ButtonInteraction,
+  type: TicketType,
+  lang: SupportedLocale,
+) {
+  const t = getLocale(lang);
 
-    const embed = new EmbedBuilder()
-      .setTitle('🎫 ' + t.panel.title)
-      .setDescription(t.panel.selectType)
-      .setColor(Colors.PRIMARY);
+  if (type === 'MIDDLEMAN') {
+    const fields = TICKET_FORMS['MIDDLEMAN'];
+    const modal = new ModalBuilder()
+      .setCustomId(`ticket:modal:MIDDLEMAN:${lang}`)
+      .setTitle('Open Middleman Ticket');
 
-    const btnRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`ticket:open:MIDDLEMAN:${lang}`)
-        .setLabel(t.ticketTypes.middleman.label)
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(`ticket:open:SUPPORT:${lang}`)
-        .setLabel(t.ticketTypes.tickets.label)
-        .setStyle(ButtonStyle.Secondary),
+    const rows = fields.slice(0, 5).map(f =>
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId(f.id)
+          .setLabel(f.label)
+          .setPlaceholder(f.placeholder ?? '')
+          .setRequired(f.required)
+          .setStyle(f.style === 'PARAGRAPH' ? TextInputStyle.Paragraph : TextInputStyle.Short)
+          .setMinLength(f.minLength ?? 0)
+          .setMaxLength(f.maxLength ?? 1000),
+      )
     );
+    modal.addComponents(...rows);
+    await interaction.showModal(modal);
+    return;
+  }
 
-    await interaction.reply({ embeds: [embed], components: [btnRow], ephemeral: true });
+  if (type === 'SUPPORT') {
+    const modal = new ModalBuilder()
+      .setCustomId(`ticket:modal:SUPPORT:${lang}`)
+      .setTitle(t.modal.supportTitle);
+
+    modal.addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId('subject')
+          .setLabel(t.modal.subject)
+          .setPlaceholder(t.modal.subjectPlaceholder)
+          .setRequired(true)
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(100),
+      ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId('description')
+          .setLabel(t.modal.description)
+          .setPlaceholder(t.modal.descriptionPlaceholder)
+          .setRequired(true)
+          .setStyle(TextInputStyle.Paragraph)
+          .setMinLength(20)
+          .setMaxLength(1000),
+      ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId('attempted')
+          .setLabel(t.modal.attempted)
+          .setPlaceholder(t.modal.attemptedPlaceholder)
+          .setRequired(false)
+          .setStyle(TextInputStyle.Paragraph)
+          .setMaxLength(500),
+      ),
+    );
+    await interaction.showModal(modal);
+    return;
+  }
+
+  await interaction.reply({ content: 'Unknown ticket type.', ephemeral: true });
+}
+
+export async function handleSelect(interaction: StringSelectMenuInteraction) {
+  // ── Step 2: language selected → open modal for the chosen type ────────────
+  if (interaction.customId.startsWith('ticket:lang_select:')) {
+    const type = interaction.customId.split(':')[2] as TicketType;
+    const lang = interaction.values[0] as SupportedLocale;
+
+    // Dismiss the language dropdown ephemerally and show the modal
+    // We need to respond with showModal — update first isn't possible with modals,
+    // so we use a follow-up approach via deferUpdate then showModal via a button trick.
+    // Instead: reply with the modal directly by converting to a button click isn't possible
+    // from a select menu. We must use interaction.showModal directly.
+    await interaction.showModal(
+      await buildModal(type, lang)
+    );
     return;
   }
 
@@ -502,7 +524,6 @@ export async function handleSelect(interaction: StringSelectMenuInteraction) {
     }
 
     formData.payment_method_code = code;
-
     await interaction.update({ content: t.ticket.creatingMiddleman, embeds: [], components: [] });
 
     const member = await interaction.guild!.members.fetch(interaction.user.id);
@@ -519,6 +540,69 @@ export async function handleSelect(interaction: StringSelectMenuInteraction) {
   }
 }
 
+async function buildModal(type: TicketType, lang: SupportedLocale): Promise<ModalBuilder> {
+  const t = getLocale(lang);
+
+  if (type === 'MIDDLEMAN') {
+    const fields = TICKET_FORMS['MIDDLEMAN'];
+    const modal = new ModalBuilder()
+      .setCustomId(`ticket:modal:MIDDLEMAN:${lang}`)
+      .setTitle('Open Middleman Ticket');
+
+    const rows = fields.slice(0, 5).map(f =>
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId(f.id)
+          .setLabel(f.label)
+          .setPlaceholder(f.placeholder ?? '')
+          .setRequired(f.required)
+          .setStyle(f.style === 'PARAGRAPH' ? TextInputStyle.Paragraph : TextInputStyle.Short)
+          .setMinLength(f.minLength ?? 0)
+          .setMaxLength(f.maxLength ?? 1000),
+      )
+    );
+    modal.addComponents(...rows);
+    return modal;
+  }
+
+  // SUPPORT
+  const modal = new ModalBuilder()
+    .setCustomId(`ticket:modal:SUPPORT:${lang}`)
+    .setTitle(t.modal.supportTitle);
+
+  modal.addComponents(
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId('subject')
+        .setLabel(t.modal.subject)
+        .setPlaceholder(t.modal.subjectPlaceholder)
+        .setRequired(true)
+        .setStyle(TextInputStyle.Short)
+        .setMaxLength(100),
+    ),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId('description')
+        .setLabel(t.modal.description)
+        .setPlaceholder(t.modal.descriptionPlaceholder)
+        .setRequired(true)
+        .setStyle(TextInputStyle.Paragraph)
+        .setMinLength(20)
+        .setMaxLength(1000),
+    ),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId('attempted')
+        .setLabel(t.modal.attempted)
+        .setPlaceholder(t.modal.attemptedPlaceholder)
+        .setRequired(false)
+        .setStyle(TextInputStyle.Paragraph)
+        .setMaxLength(500),
+    ),
+  );
+  return modal;
+}
+
 export async function handleModal(interaction: ModalSubmitInteraction) {
   const parts = interaction.customId.split(':');
   const action = parts[1];
@@ -533,7 +617,6 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
     for (const field of fields.slice(0, 5)) {
       try { formData[field.id] = interaction.fields.getTextInputValue(field.id); } catch {}
     }
-    // For SUPPORT the modal fields are custom — read them directly
     if (type === 'SUPPORT') {
       try { formData['subject'] = interaction.fields.getTextInputValue('subject'); } catch {}
       try { formData['description'] = interaction.fields.getTextInputValue('description'); } catch {}

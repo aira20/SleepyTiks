@@ -4,7 +4,8 @@ import {
   PermissionFlagsBits,
   EmbedBuilder,
   ActionRowBuilder,
-  StringSelectMenuBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } from 'discord.js';
 import { Colors } from '../../types';
 
@@ -16,23 +17,24 @@ export const data = new SlashCommandBuilder()
 export async function execute(interaction: ChatInputCommandInteraction) {
   const embed = new EmbedBuilder()
     .setTitle('🎫 Create a Ticket')
-    .setDescription('Select your language to get started.\n\nPilih bahasa Anda untuk memulai.')
+    .setDescription('Choose a ticket type to get started.\n\nPilih jenis tiket untuk memulai.')
     .setColor(Colors.PRIMARY);
 
-  const langRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId('ticket:lang_select')
-      .setPlaceholder('Language / Bahasa')
-      .addOptions([
-        { label: '🇺🇸 English', value: 'en' },
-        { label: '🇮🇩 Indonesia', value: 'id' },
-      ]),
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId('ticket:type:MIDDLEMAN')
+      .setLabel('Middleman')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId('ticket:type:SUPPORT')
+      .setLabel('Tickets')
+      .setStyle(ButtonStyle.Secondary),
   );
 
   if (!interaction.channel || !interaction.channel.isSendable()) {
     return interaction.reply({ content: 'This command must be run in a sendable text channel.', ephemeral: true });
   }
 
-  await interaction.channel.send({ embeds: [embed], components: [langRow] });
+  await interaction.channel.send({ embeds: [embed], components: [row] });
   await interaction.reply({ content: 'Panel posted!', ephemeral: true });
 }
