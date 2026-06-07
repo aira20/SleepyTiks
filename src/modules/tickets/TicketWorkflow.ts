@@ -10,7 +10,6 @@ import {
   ButtonStyle,
 } from 'discord.js';
 import { PrismaClient, TicketType, Guild } from '@prisma/client';
-import { getLocale } from '../../locales';
 import { TicketManager } from './TicketManager';
 import { AccountAnalyzer } from '../antiscam/AccountAnalyzer';
 import { PatternDetector } from '../antiscam/PatternDetector';
@@ -29,6 +28,7 @@ import {
   getPaymentMethodFee,
   formatPaymentMethodLabel,
 } from '../../utils/paymentFee';
+import { getLocale } from '../../locales';
 
 const prisma = new PrismaClient();
 
@@ -55,10 +55,6 @@ function resolveCategoryId(guild: Guild, type: TicketType): string | null {
   }
 }
 
-/**
- * Resolves a guild member from a snowflake ID or username.
- * Uses fetch (not cache) to work correctly after bot restarts.
- */
 async function resolveParticipant(
   discordGuild: DiscordGuild,
   input: string,
@@ -100,33 +96,33 @@ export interface MiddlemanParticipants {
 async function resolveMiddlemanParticipants(
   discordGuild: DiscordGuild,
   formData: Record<string, string>,
+  lang: string,
 ): Promise<MiddlemanParticipants | { validationError: string }> {
+  const t = getLocale(lang);
   const buyerInput = formData['buyer_id']?.trim() ?? '';
   const sellerInput = formData['seller_id']?.trim() ?? '';
 
   if (!buyerInput || !sellerInput) {
-    return { validationError: 'Both Buyer and Seller fields are required.' };
+    return { validationError: t.middleman.validationBothRequired };
   }
 
-  // ── Amount validation ───────────────────────────────────────────────────────
   const rawAmount = formData['amount']?.trim() ?? '';
-  if (!rawAmount) return { validationError: 'Transaction Amount is required.' };
+  if (!rawAmount) return { validationError: t.middleman.validationAmountRequired };
 
   const parsedAmount = parseIDRAmount(rawAmount);
   if (parsedAmount === null) {
-    return { validationError: 'Transaction Amount must be a valid number. Example: `500000` or `Rp 1.250.000`.' };
+    return { validationError: t.middleman.validationAmountInvalid };
   }
 
   const amountError = validateIDRAmount(parsedAmount);
   if (amountError) return { validationError: amountError };
 
-  // ── Fee responsibility validation ───────────────────────────────────────────
   const rawFeeResp = formData['fee_responsibility']?.trim() ?? '';
-  if (!rawFeeResp) return { validationError: 'Fee Responsibility is required. Enter `buyer`, `seller`, or `split`.' };
+  if (!rawFeeResp) return { validationError: t.middleman.validationFeeRequired };
 
   const feeResponsibility = parseFeeResponsibility(rawFeeResp);
   if (!feeResponsibility) {
-    return { validationError: `Fee Responsibility \`${rawFeeResp}\` is not valid. Please enter **buyer**, **seller**, or **split**.` };
+    return { validationError: t.middleman.validationFeeInvalid(rawFeeResp) };
   }
 
   const [buyer, seller] = await Promise.all([
@@ -135,12 +131,12 @@ async function resolveMiddlemanParticipants(
   ]);
 
   if (buyer && seller && buyer.id === seller.id) {
-    return { validationError: 'The Buyer and Seller cannot be the same user.' };
+    return { validationError: t.middleman.validationSameUser };
   }
 
   const warnings: string[] = [];
-  if (!buyer) warnings.push(`Could not find Buyer \`${buyerInput}\` in this server. A staff member can add them manually.`);
-  if (!seller) warnings.push(`Could not find Seller \`${sellerInput}\` in this server. A staff member can add them manually.`);
+  if (!buyer) warnings.push(t.middleman.buyerNotFound(buyerInput));
+  if (!seller) warnings.push(t.middleman.sellerNotFound(sellerInput));
 
   return { buyer, seller, buyerInput, sellerInput, warnings, amount: parsedAmount, feeResponsibility };
 }
@@ -155,29 +151,28 @@ export class TicketWorkflow {
     const guildId = discordGuild.id;
     const userId = member.id;
     const userTag = member.user.tag;
+    const lang = formData._lang ?? 'en';
+    const t = getLocale(lang);
 
     logger.info(`[Ticket] Button clicked — type=${type} user=${userTag} (${userId}) guild=${guildId}`);
 
     const guild = await prisma.guild.findUnique({ where: { id: guildId } });
     if (!guild) {
       logger.warn(`[Ticket] Guild ${guildId} not configured`);
-      return { success: false, message: 'Bot is not configured for this server. An admin must run `/setup` first.' };
+      return { success: false, message: t.ticket.notConfigured };
     }
 
-    // ── Cooldown check ────────────────────────────────────────────────────────
     const cooldown = await PatternDetector.checkCooldown(guildId, userId, type);
     if (cooldown.onCooldown) {
       return {
         success: false,
-        message: `You are on cooldown. You can open another ${type.replace(/_/g, ' ')} ticket <t:${Math.floor(cooldown.expiresAt!.getTime() / 1000)}:R>.`,
+        message: t.ticket.cooldown(type.replace(/_/g, ' '), Math.floor(cooldown.expiresAt!.getTime() / 1000)),
       };
     }
 
-    // ── Duplicate check — fetch channel to confirm it still exists ────────────
     logger.info(`[Ticket] Duplicate check — user=${userId} type=${type}`);
     const duplicate = await PatternDetector.checkDuplicateTicket(guildId, userId, type);
     if (duplicate.isDuplicate && duplicate.ticketId) {
-      // Use fetch (not cache) — cache is empty after bot restart
       let channelStillExists = false;
       if (duplicate.channelId) {
         try {
@@ -197,40 +192,36 @@ export class TicketWorkflow {
       } else {
         return {
           success: false,
-          message: `You already have an open ${type.replace(/_/g, ' ')} ticket. Go to your existing ticket: <#${duplicate.channelId}>`,
+          message: t.ticket.alreadyOpen(type.replace(/_/g, ' '), duplicate.channelId!),
         };
       }
     }
 
-    // ── Open ticket limit ─────────────────────────────────────────────────────
     const openCount = await prisma.ticket.count({
       where: { guildId, creatorId: userId, status: { notIn: ['CLOSED', 'ARCHIVED'] } },
     });
     const maxOpen = guild.premiumTier === 'NONE' ? LIMITS.FREE_MAX_OPEN_TICKETS : LIMITS.PREMIUM_MAX_OPEN_TICKETS;
     if (openCount >= maxOpen) {
-      return { success: false, message: `You have reached the maximum of ${maxOpen} open tickets.` };
+      return { success: false, message: t.ticket.maxOpen(maxOpen) };
     }
 
-    // ── Risk analysis ─────────────────────────────────────────────────────────
     const riskProfile = await AccountAnalyzer.analyze(member, guildId);
     if (riskProfile.recommendation === 'BLOCK') {
       logger.warn(`[Ticket] Blocked ticket from ${userTag} — risk score ${riskProfile.riskScore}`);
-      return { success: false, message: 'You are not allowed to open tickets at this time. Contact an administrator if you believe this is a mistake.' };
+      return { success: false, message: t.ticket.blocked };
     }
 
     const patterns = PatternDetector.analyzeFormData(formData);
 
-    // ── MIDDLEMAN: resolve and validate participants ───────────────────────────
     let mmParticipants: MiddlemanParticipants | null = null;
     if (type === 'MIDDLEMAN') {
-      const resolved = await resolveMiddlemanParticipants(discordGuild, formData);
+      const resolved = await resolveMiddlemanParticipants(discordGuild, formData, lang);
       if ('validationError' in resolved) {
         return { success: false, message: resolved.validationError };
       }
       mmParticipants = resolved;
     }
 
-    // ── Category + staff role resolution ─────────────────────────────────────
     const customCategory = await prisma.ticketCategory.findFirst({
       where: { guildId, isActive: true, name: type },
     });
@@ -240,7 +231,6 @@ export class TicketWorkflow {
 
     logger.info(`[Ticket] Creating channel — type=${type} category=${categoryId ?? 'none'} staffRole=${staffRoleId ?? 'none'}`);
 
-    // ── Permission overwrites ─────────────────────────────────────────────────
     const permissionOverwrites: any[] = [
       { id: discordGuild.id, deny: [PermissionFlagsBits.ViewChannel] },
       { id: userId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
@@ -282,14 +272,11 @@ export class TicketWorkflow {
       }
     }
 
-    // ── Create Discord channel ────────────────────────────────────────────────
     let channel: TextChannel;
     try {
-      // Count existing tickets of this type in this guild to get the next sequential number
       const typeCount = await prisma.ticket.count({ where: { guildId, type, status: { not: 'ARCHIVED' } } });
       const prefix = type.toLowerCase().replace(/_/g, '-');
 
-      // Find an unused channel name — increment until one is free
       let seq = typeCount + 1;
       let channelName = `${prefix}-${String(seq).padStart(3, '0')}`;
       const existing = await discordGuild.channels.fetch();
@@ -309,13 +296,9 @@ export class TicketWorkflow {
       logger.info(`[Ticket] Channel created — ${channel.name} (${channel.id})`);
     } catch (err) {
       logger.error(`[Ticket] Failed to create channel — type=${type} user=${userTag}`, err);
-      return {
-        success: false,
-        message: 'Failed to create ticket channel. Please contact an administrator — the bot may be missing `Manage Channels` permission in the ticket category.',
-      };
+      return { success: false, message: t.ticket.createFailed };
     }
 
-    // ── Create database record ────────────────────────────────────────────────
     logger.info(`[Ticket] Creating database record — channel=${channel.id}`);
     let ticket: any;
     try {
@@ -330,14 +313,12 @@ export class TicketWorkflow {
       logger.info(`[Ticket] Ticket #${ticket.ticketNumber} created — id=${ticket.id}`);
     } catch (err) {
       logger.error(`[Ticket] Failed to create DB record`, err);
-      // Channel was created but DB failed — delete the channel to avoid orphan
       await channel.delete().catch(() => {});
-      return { success: false, message: 'Failed to save ticket. Please try again.' };
+      return { success: false, message: t.ticket.saveFailed };
     }
 
     await PatternDetector.setCooldown(guildId, userId, type, guild.ticketCooldownSeconds);
 
-    // ── Risk / pattern warnings → ticket channel only ────────────────────────
     if (riskProfile.recommendation === 'WARN_STAFF' || patterns.detected) {
       const warnings: string[] = [];
       if (riskProfile.recommendation === 'WARN_STAFF') {
@@ -352,53 +333,38 @@ export class TicketWorkflow {
       await channel.send({ content: `${mention}\n${warnings.join('\n')}`.trim() }).catch(() => {});
     }
 
-    // ── Welcome message → ticket channel ─────────────────────────────────────
     logger.info(`[Ticket] Sending welcome message — type=${type}`);
     if (type === 'MIDDLEMAN' && mmParticipants) {
-      await this.sendMiddlemanWelcome(channel, ticket, member, mmParticipants, staffRoleId);
+      await this.sendMiddlemanWelcome(channel, ticket, member, mmParticipants, staffRoleId, lang);
     } else {
-      await this.sendGenericWelcome(channel, ticket, member, type, formData, staffRoleId);
+      await this.sendGenericWelcome(channel, ticket, member, type, lang, staffRoleId);
     }
 
-    return { success: true, message: `Ticket created: <#${channel.id}>`, channelId: channel.id };
+    return { success: true, message: t.ticket.created(channel.id), channelId: channel.id };
   }
-
-  private static readonly PAYMENT_INFO = [
-    '━━━━━━━━━━━━━━━━━━━━━━',
-    '🏦  **BANK BCA**',
-    '',
-    '**Nomor Rekening:**',
-    '6760 3150 42',
-    '',
-    '**Atas Nama:**',
-    'Azra Reza Satria H',
-    '━━━━━━━━━━━━━━━━━━━━━━',
-  ].join('\n');
 
   private static async sendGenericWelcome(
     channel: TextChannel,
     ticket: { id: string; ticketNumber: number },
     creator: GuildMember,
     type: TicketType,
-    formData: Record<string, string>,
+    lang: string,
     staffRoleId: string | null,
   ): Promise<void> {
-    // ── Payment embed (Purchase only) ─────────────────────────────────────
+    const t = getLocale(lang);
+
     if (type === 'PURCHASE') {
       const paymentEmbed = new EmbedBuilder()
         .setColor(0xf0b132)
-        .setTitle('💳 PAYMENT INFORMATION')
-        .setDescription(this.PAYMENT_INFO)
+        .setTitle(t.middleman.paymentTitle)
+        .setDescription(t.middleman.paymentInfo)
         .addFields({
-          name: 'Instructions',
+          name: t.middleman.paymentInstructions,
           value: 'Please transfer to the account above.\nAfter payment, upload your proof of payment in this ticket and wait for staff verification.',
         });
-
       await channel.send({ content: `<@${creator.id}>`, embeds: [paymentEmbed] }).catch(() => {});
       return;
     }
-
-    const t = getLocale(formData._lang);
 
     const descriptions: Partial<Record<TicketType, string>> = {
       SUPPORT: t.ticket.welcome,
@@ -426,11 +392,13 @@ export class TicketWorkflow {
 
   private static async sendMiddlemanWelcome(
     channel: TextChannel,
-    ticket: { id: string; ticketNumber: number },
+    ticket: { id: string; ticketNumber: number; formData?: any },
     creator: GuildMember,
     participants: MiddlemanParticipants,
     staffRoleId: string | null,
+    lang: string,
   ): Promise<void> {
+    const t = getLocale(lang);
     const { buyer, seller, buyerInput, sellerInput, warnings, amount, feeResponsibility } = participants;
 
     const year = new Date().getFullYear();
@@ -438,77 +406,69 @@ export class TicketWorkflow {
 
     const calc = calculateMiddlemanFee(amount, feeResponsibility);
 
-    // ── Payment method (collected via post-modal select menu) ───────────────
-    const paymentMethodCode = (ticket as any).formData?.payment_method_code as string | undefined;
-    const paymentBankName   = (ticket as any).formData?.payment_method_bank as string | undefined;
+    const paymentMethodCode = ticket.formData?.payment_method_code as string | undefined;
+    const paymentBankName   = ticket.formData?.payment_method_bank as string | undefined;
     const paymentFee        = getPaymentMethodFee(paymentMethodCode);
     const paymentMethodLabel = formatPaymentMethodLabel(paymentMethodCode, paymentBankName);
     const finalBuyerPays    = calc.buyerPays + paymentFee;
 
-    const feeResponsibilityLabel: Record<typeof feeResponsibility, string> = {
-      buyer: 'Buyer Pays Fee',
-      seller: 'Seller Pays Fee',
-      split: 'Split 50/50',
-    };
+    const feeLabels = t.middleman.feeLabels;
 
     const mentionParts = [`<@${creator.id}>`];
     if (buyer) mentionParts.push(`<@${buyer.id}>`);
     if (seller) mentionParts.push(`<@${seller.id}>`);
 
-    // ── Embed 1: Payment information ─────────────────────────────────────
     const paymentEmbed = new EmbedBuilder()
       .setColor(0xf0b132)
-      .setTitle('💳 PAYMENT INFORMATION')
-      .setDescription(this.PAYMENT_INFO)
+      .setTitle(t.middleman.paymentTitle)
+      .setDescription(t.middleman.paymentInfo)
       .addFields({
-        name: 'Instructions',
-        value: `**Buyer** must transfer **Rp ${formatIDR(finalBuyerPays)}** to the account above.\nAfter payment, upload proof of payment in this ticket and wait for staff verification.`,
+        name: t.middleman.paymentInstructions,
+        value: t.middleman.paymentInstructionText(`Rp ${formatIDR(finalBuyerPays)}`),
       });
 
-    // ── Embed 2: Transaction summary ──────────────────────────────────────
     const summaryFields: { name: string; value: string; inline: boolean }[] = [
       {
-        name: '👥 Participants',
+        name: t.middleman.participants,
         value: [
-          `**Creator:** <@${creator.id}>`,
-          `**Buyer:** ${buyer ? `<@${buyer.id}>` : `\`${buyerInput}\` *(not found)*`}`,
-          `**Seller:** ${seller ? `<@${seller.id}>` : `\`${sellerInput}\` *(not found)*`}`,
+          `${t.middleman.creator} <@${creator.id}>`,
+          `${t.middleman.buyer} ${buyer ? `<@${buyer.id}>` : t.middleman.buyerNotFound(buyerInput)}`,
+          `${t.middleman.seller} ${seller ? `<@${seller.id}>` : t.middleman.sellerNotFound(sellerInput)}`,
         ].join('\n'),
         inline: false,
       },
-      { name: '💵 Item Price',        value: `Rp ${formatIDR(calc.amount)}`,        inline: true },
-      { name: '🏦 Middleman Fee',     value: `Rp ${formatIDR(calc.fee)}`,           inline: true },
-      { name: '💳 Payment Fee',       value: `Rp ${formatIDR(paymentFee)}`,         inline: true },
-      { name: '🏧 Payment Method',    value: paymentMethodLabel,                    inline: true },
-      { name: '📋 Fee Responsibility', value: feeResponsibilityLabel[feeResponsibility], inline: true },
-      { name: '🆔 Transaction ID',    value: `\`${transactionId}\``,                inline: true },
-      { name: '💰 Buyer Pays (Total)', value: `**Rp ${formatIDR(finalBuyerPays)}**`, inline: true },
-      { name: '📤 Seller Receives',   value: `Rp ${formatIDR(calc.sellerReceives)}`, inline: true },
-      { name: '​',               value: '​',                              inline: true },
-      { name: '📊 Status',            value: '⏳ Awaiting Payment',                 inline: false },
+      { name: t.middleman.itemPrice,        value: `Rp ${formatIDR(calc.amount)}`,        inline: true },
+      { name: t.middleman.mmFee,            value: `Rp ${formatIDR(calc.fee)}`,           inline: true },
+      { name: t.middleman.paymentFee,       value: `Rp ${formatIDR(paymentFee)}`,         inline: true },
+      { name: t.middleman.paymentMethod,    value: paymentMethodLabel,                    inline: true },
+      { name: t.middleman.feeResponsibility, value: feeLabels[feeResponsibility],         inline: true },
+      { name: t.middleman.transactionId,    value: `\`${transactionId}\``,                inline: true },
+      { name: t.middleman.buyerPays,        value: `**Rp ${formatIDR(finalBuyerPays)}**`, inline: true },
+      { name: t.middleman.sellerReceives,   value: `Rp ${formatIDR(calc.sellerReceives)}`, inline: true },
+      { name: '​',                      value: '​',                               inline: true },
+      { name: t.middleman.status,           value: t.middleman.awaitingPayment,           inline: false },
     ];
 
     const summaryEmbed = new EmbedBuilder()
       .setColor(Colors.PRIMARY)
-      .setTitle('💰 Transaction Summary')
+      .setTitle(t.middleman.summaryTitle)
       .setDescription(
-        '```\n' +
-        `Item Price      : Rp ${formatIDR(calc.amount)}\n` +
-        `Middleman Fee   : Rp ${formatIDR(calc.fee)}\n` +
-        `Payment Fee     : Rp ${formatIDR(paymentFee)}\n` +
-        `Payment Method  : ${paymentMethodLabel}\n` +
-        '─────────────────────────────\n' +
-        `Final Total     : Rp ${formatIDR(finalBuyerPays)}\n` +
-        '```'
+        t.middleman.summaryText(
+          `Rp ${formatIDR(calc.amount)}`,
+          `Rp ${formatIDR(calc.fee)}`,
+          `Rp ${formatIDR(paymentFee)}`,
+          paymentMethodLabel,
+          `Rp ${formatIDR(finalBuyerPays)}`,
+        )
       )
       .addFields(summaryFields)
-      .setFooter({ text: 'Do not send payment until a staff member has verified both parties.' })
+      .setFooter({ text: t.middleman.summaryFooter })
       .setTimestamp();
 
     const fundsRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`ticket:funds_received:${ticket.id}`)
-        .setLabel('Funds Received')
+        .setLabel(t.middleman.fundsButton)
         .setStyle(ButtonStyle.Success)
         .setEmoji('🟢'),
     );
@@ -518,13 +478,13 @@ export class TicketWorkflow {
     if (warnings.length > 0) {
       const warnEmbed = new EmbedBuilder()
         .setColor(Colors.WARNING)
-        .setTitle('⚠️ Participant Warning')
+        .setTitle(t.middleman.warningTitle)
         .setDescription(warnings.join('\n\n'))
         .addFields({
-          name: 'Action Required',
+          name: t.middleman.warningAction,
           value: staffRoleId
-            ? `<@&${staffRoleId}> — please add the missing participant(s) manually.`
-            : 'A staff member should add the missing participant(s) manually.',
+            ? t.middleman.warningActionStaff(staffRoleId)
+            : t.middleman.warningActionNoRole,
         });
 
       await channel.send({ embeds: [warnEmbed] }).catch(() => {});

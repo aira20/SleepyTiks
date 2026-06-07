@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { client } from '../bot/client';
 import { Colors } from '../types/index';
 import { logger } from '../utils/logger';
+import { getLocale } from '../locales';
 
 const prisma = new PrismaClient();
 
@@ -22,13 +23,19 @@ export class NotificationService {
       const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
       if (!ticket) return;
 
+      const t = getLocale((ticket as any).language);
+      const guildName = client.guilds.cache.get(ticket.guildId)?.name ?? '';
+
       const embed = new EmbedBuilder()
         .setColor(Colors.NEUTRAL)
-        .setTitle('🔒 Your ticket has been closed')
+        .setTitle(t.notification.closedTitle)
         .setDescription(
-          `**Ticket:** #${ticket.ticketNumber} — ${ticket.type.replace(/_/g, ' ')}\n` +
-          `**Reason:** ${ticket.closedReason ?? 'No reason provided'}\n\n` +
-          `If you need further help, open a new ticket in **${client.guilds.cache.get(ticket.guildId)?.name}**.`
+          t.notification.closedDescription(
+            ticket.ticketNumber,
+            ticket.type.replace(/_/g, ' '),
+            ticket.closedReason ?? t.notification.noReason,
+            guildName,
+          )
         )
         .setTimestamp();
 
@@ -43,13 +50,18 @@ export class NotificationService {
       const tx = await prisma.transaction.findUnique({ where: { id: transactionId } });
       if (!tx) return;
 
+      // Transactions default to English — no per-transaction language yet
+      const t = getLocale('en');
+
       const embed = new EmbedBuilder()
         .setColor(Colors.INFO)
-        .setTitle('💳 Transaction Update')
+        .setTitle(t.notification.transactionTitle)
         .setDescription(
-          `**Ref:** \`${tx.humanId}\`\n` +
-          `**Status:** ${tx.status.replace(/_/g, ' ')}\n` +
-          `**Item:** ${tx.item}`
+          t.notification.transactionDescription(
+            tx.humanId,
+            tx.status.replace(/_/g, ' '),
+            tx.item,
+          )
         )
         .setTimestamp();
 

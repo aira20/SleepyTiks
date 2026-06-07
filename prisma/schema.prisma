@@ -89,6 +89,7 @@ model Ticket {
   channelName       String
   status            TicketStatus          @default(OPEN)
   priority          Priority              @default(NORMAL)
+  language          String                @default("en")
   formData          Json?
   transactionId     String?               @unique
   firstResponseAt   DateTime?

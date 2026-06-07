@@ -13,6 +13,7 @@ import { AuditService } from '../../services/AuditService';
 import { NotificationService } from '../../services/NotificationService';
 import { TranscriptGenerator } from './TranscriptGenerator';
 import { priorityBadge, ticketStatusBadge } from '../../utils/formatting';
+import { getLocale } from '../../locales';
 
 const prisma = new PrismaClient();
 
@@ -25,6 +26,7 @@ export class TicketManager {
 
     const count = await prisma.ticket.count({ where: { guildId } });
     const ticketNumber = count + 1;
+    const language = (formData as any)?._lang ?? 'en';
 
     const ticket = await prisma.ticket.create({
       data: {
@@ -35,14 +37,16 @@ export class TicketManager {
         type,
         status: 'OPEN',
         priority: 'NORMAL',
+        language,
         creatorId,
         creatorTag,
         formData: formData ?? {},
       },
     });
 
-    const embed = this.buildTicketEmbed(ticket as any, creatorTag);
-    const row = this.buildTicketButtons(ticket.id);
+    const t = getLocale(language);
+    const embed = this.buildTicketEmbed(ticket as any, creatorTag, t);
+    const row = this.buildTicketButtons(ticket.id, t);
 
     await channel.send({ embeds: [embed], components: [row] });
 
@@ -79,33 +83,31 @@ export class TicketManager {
 
     await NotificationService.notifyTicketClosed(ticketId);
 
-    // Lock channel and send post-close management embed
     try {
       const fetched = await client.channels.fetch(ticket.channelId);
       if (!fetched || !fetched.isTextBased() || fetched.isDMBased()) return;
       const channel = fetched as TextChannel;
 
-      // Deny SendMessages for @everyone — channel becomes read-only
-      await channel.permissionOverwrites.edit(ticket.guildId, {
-        SendMessages: false,
-      });
+      await channel.permissionOverwrites.edit(ticket.guildId, { SendMessages: false });
+
+      const t = getLocale((ticket as any).language);
 
       const embed = new EmbedBuilder()
         .setColor(Colors.NEUTRAL)
-        .setTitle('🔒 Ticket Closed')
+        .setTitle(t.close.title)
         .addFields(
-          { name: 'Closed By', value: `<@${closedById}>`, inline: true },
-          { name: 'Closed At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
-          { name: 'Reason', value: reason ?? 'No reason provided', inline: false },
+          { name: t.close.closedBy, value: `<@${closedById}>`, inline: true },
+          { name: t.close.closedAt, value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+          { name: t.close.reason, value: reason ?? t.close.noReason, inline: false },
         )
-        .setDescription('This ticket has been closed. Use the buttons below to manage it.')
-        .setFooter({ text: `Ticket ID: ${ticketId}` })
+        .setDescription(t.close.description)
+        .setFooter({ text: t.close.footerPrefix + ticketId })
         .setTimestamp();
 
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`ticket:reopen:${ticketId}`).setLabel('Reopen').setStyle(ButtonStyle.Success).setEmoji('🔓'),
-        new ButtonBuilder().setCustomId(`ticket:move:${ticketId}`).setLabel('Move Ticket').setStyle(ButtonStyle.Primary).setEmoji('📂'),
-        new ButtonBuilder().setCustomId(`ticket:delete_confirm:${ticketId}`).setLabel('Delete Ticket').setStyle(ButtonStyle.Danger).setEmoji('🗑️'),
+        new ButtonBuilder().setCustomId(`ticket:reopen:${ticketId}`).setLabel(t.close.reopen).setStyle(ButtonStyle.Success).setEmoji('🔓'),
+        new ButtonBuilder().setCustomId(`ticket:move:${ticketId}`).setLabel(t.close.move).setStyle(ButtonStyle.Primary).setEmoji('📂'),
+        new ButtonBuilder().setCustomId(`ticket:delete_confirm:${ticketId}`).setLabel(t.close.delete).setStyle(ButtonStyle.Danger).setEmoji('🗑️'),
       );
 
       await channel.send({ embeds: [embed], components: [row] });
@@ -270,6 +272,10 @@ export class TicketManager {
     return prisma.ticketParticipant.deleteMany({ where: { ticketId, userId } });
   }
 
+  static getTicketLanguage(ticket: any): string {
+    return ticket?.language ?? 'en';
+  }
+
   private static async updateStaffStats(guildId: string, staffId: string, staffTag: string, ticket: { responseTimeSec: number | null }) {
     const responseMs = BigInt((ticket.responseTimeSec ?? 0) * 1000);
     await prisma.staffStats.upsert({
@@ -291,27 +297,34 @@ export class TicketManager {
     });
   }
 
-  static buildTicketEmbed(ticket: any, creatorTag: string): EmbedBuilder {
+  static buildTicketEmbed(ticket: any, creatorTag: string, t = getLocale('en')): EmbedBuilder {
     const statusDisplay = TICKET_STATUS_DISPLAY[ticket.status as TicketStatus];
+    const formEntries = ticket.formData
+      ? Object.entries(ticket.formData as Record<string, string>)
+          .filter(([k]) => !k.startsWith('_'))
+          .map(([k, v]) => `**${k}:** ${v}`)
+          .join('\n')
+          .slice(0, 1024)
+      : null;
 
     return new EmbedBuilder()
       .setColor(statusDisplay.color)
       .setTitle(`${statusDisplay.emoji} Ticket #${ticket.ticketNumber} — ${ticket.type.replace(/_/g, ' ')}`)
       .addFields(
-        { name: 'Created by', value: `<@${ticket.creatorId}> (${creatorTag})`, inline: true },
-        { name: 'Status', value: ticketStatusBadge(ticket.status), inline: true },
-        { name: 'Priority', value: priorityBadge(ticket.priority), inline: true },
-        ...(ticket.formData ? [{ name: 'Details', value: Object.entries(ticket.formData as Record<string, string>).map(([k, v]) => `**${k}:** ${v}`).join('\n').slice(0, 1024) }] : []),
+        { name: t.ticketEmbed.createdBy, value: `<@${ticket.creatorId}> (${creatorTag})`, inline: true },
+        { name: t.ticketEmbed.status, value: ticketStatusBadge(ticket.status), inline: true },
+        { name: t.ticketEmbed.priority, value: priorityBadge(ticket.priority), inline: true },
+        ...(formEntries ? [{ name: t.ticketEmbed.details, value: formEntries }] : []),
       )
       .setFooter({ text: `Ticket ID: ${ticket.id}` })
       .setTimestamp();
   }
 
-  static buildTicketButtons(ticketId: string): ActionRowBuilder<ButtonBuilder> {
+  static buildTicketButtons(ticketId: string, t = getLocale('en')): ActionRowBuilder<ButtonBuilder> {
     return new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`ticket:claim:${ticketId}`).setLabel('Claim').setStyle(ButtonStyle.Primary).setEmoji('🙋'),
-      new ButtonBuilder().setCustomId(`ticket:close:${ticketId}`).setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
-      new ButtonBuilder().setCustomId(`ticket:note:${ticketId}`).setLabel('Add Note').setStyle(ButtonStyle.Secondary).setEmoji('📝'),
+      new ButtonBuilder().setCustomId(`ticket:claim:${ticketId}`).setLabel(t.ticketEmbed.claim).setStyle(ButtonStyle.Primary).setEmoji('🙋'),
+      new ButtonBuilder().setCustomId(`ticket:close:${ticketId}`).setLabel(t.ticketEmbed.close).setStyle(ButtonStyle.Danger).setEmoji('🔒'),
+      new ButtonBuilder().setCustomId(`ticket:note:${ticketId}`).setLabel(t.ticketEmbed.addNote).setStyle(ButtonStyle.Secondary).setEmoji('📝'),
     );
   }
 
