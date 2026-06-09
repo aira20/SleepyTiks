@@ -97,15 +97,15 @@ export const id: Locale = {
   },
   middleman: {
     paymentTitle: '💳 INFORMASI PEMBAYARAN',
-    paymentInfo: [
+    paymentInfo: (bankName, accountNumber, accountHolder) => [
       '━━━━━━━━━━━━━━━━━━━━━━',
-      '🏦  **BANK BCA**',
+      `🏦  **BANK ${bankName.toUpperCase()}**`,
       '',
       '**Nomor Rekening:**',
-      '6760 3150 42',
+      accountNumber,
       '',
       '**Atas Nama:**',
-      'Azra Reza Satria H',
+      accountHolder,
       '━━━━━━━━━━━━━━━━━━━━━━',
     ].join('\n'),
     paymentInstructions: 'Instruksi',

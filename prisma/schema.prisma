@@ -46,6 +46,9 @@ model Guild {
   customCategories      TicketCategory[]
   transactions          Transaction[]
   vouches               Vouch[]
+  paymentSettings       GuildPaymentSettings?
+  feeTiers              MiddlemanFeeTier[]
+  paymentFeeRules       PaymentFeeRule[]
 
   @@index([isPremium])
 }
@@ -449,6 +452,46 @@ model UserGuildProfile {
 
   @@unique([userId, guildId])
   @@index([guildId, isBanned])
+}
+
+model GuildPaymentSettings {
+  id            String   @id @default(cuid())
+  guildId       String   @unique
+  bankName      String   @default("BCA")
+  accountNumber String   @default("6760315042")
+  accountHolder String   @default("Azra Reza Satria H")
+  qrisImageUrl  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  guild         Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+}
+
+model MiddlemanFeeTier {
+  id        String   @id @default(cuid())
+  guildId   String
+  minAmount Int
+  maxAmount Int?
+  fee       Int
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@index([guildId, minAmount])
+}
+
+model PaymentFeeRule {
+  id           String   @id @default(cuid())
+  guildId      String
+  methodName   String
+  fee          Int
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  guild        Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, methodName])
+  @@index([guildId])
 }
 
 enum PremiumTier {

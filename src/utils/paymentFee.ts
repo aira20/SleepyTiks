@@ -7,6 +7,37 @@
 // New e-wallets / banks → add an entry to PAYMENT_METHODS below.
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface DbPaymentFeeRule {
+  methodName: string;
+  fee: number;
+}
+
+/**
+ * Looks up the additional payment fee for a method name from DB rules.
+ * Case-insensitive match. Returns 0 if not found.
+ */
+export function getPaymentMethodFeeFromRules(
+  methodName: string | null | undefined,
+  rules: DbPaymentFeeRule[],
+): number {
+  if (!methodName) return 0;
+  const lower = methodName.trim().toLowerCase();
+  return rules.find(r => r.methodName.toLowerCase() === lower)?.fee ?? 0;
+}
+
+/**
+ * Formats a payment method label from DB rules.
+ */
+export function formatPaymentMethodLabelFromRules(
+  methodName: string | null | undefined,
+  rules: DbPaymentFeeRule[],
+): string {
+  if (!methodName) return 'Not specified';
+  const lower = methodName.trim().toLowerCase();
+  const rule = rules.find(r => r.methodName.toLowerCase() === lower);
+  return rule ? rule.methodName : methodName;
+}
+
 export type PaymentMethodCode =
   | 'BCA'
   | 'OVO'
@@ -18,26 +49,20 @@ export type PaymentMethodCode =
 
 export interface PaymentMethod {
   code: PaymentMethodCode;
-  /** Short label used in dropdown options & embed display. */
   label: string;
-  /** Longer description shown under the dropdown option. */
   description: string;
-  /** Emoji used in the dropdown for quick visual recognition. */
   emoji: string;
-  /** Additional fee in IDR added on top of the middleman fee. */
   fee: number;
-  /** Whether picking this method needs a follow-up "bank name" prompt. */
-  requiresBankName: boolean;
 }
 
 export const PAYMENT_METHODS: readonly PaymentMethod[] = [
-  { code: 'BCA',        label: 'BCA',        description: 'Bank Central Asia — no extra fee',          emoji: '🏦', fee: 0,     requiresBankName: false },
-  { code: 'OVO',        label: 'OVO',        description: 'OVO e-wallet — no extra fee',               emoji: '💜', fee: 0,     requiresBankName: false },
-  { code: 'SHOPEEPAY',  label: 'ShopeePay',  description: 'ShopeePay e-wallet — no extra fee',         emoji: '🛒', fee: 0,     requiresBankName: false },
-  { code: 'DANA',       label: 'DANA',       description: 'DANA e-wallet — no extra fee',              emoji: '🔵', fee: 0,     requiresBankName: false },
-  { code: 'GOPAY',      label: 'GoPay',      description: 'GoPay e-wallet — Rp1.000 transfer fee',     emoji: '🟢', fee: 1_000, requiresBankName: false },
-  { code: 'LINKAJA',    label: 'LinkAja',    description: 'LinkAja e-wallet — Rp1.000 transfer fee',   emoji: '🔴', fee: 1_000, requiresBankName: false },
-  { code: 'OTHER_BANK', label: 'Other Bank', description: 'Mandiri, BRI, BNI, CIMB, etc. — Rp2.500',   emoji: '🏛️', fee: 2_500, requiresBankName: true  },
+  { code: 'BCA',        label: 'BCA',        description: 'Bank Central Asia — no extra fee',          emoji: '🏦', fee: 0     },
+  { code: 'OVO',        label: 'OVO',        description: 'OVO e-wallet — no extra fee',               emoji: '💜', fee: 0     },
+  { code: 'SHOPEEPAY',  label: 'ShopeePay',  description: 'ShopeePay e-wallet — no extra fee',         emoji: '🛒', fee: 0     },
+  { code: 'DANA',       label: 'DANA',       description: 'DANA e-wallet — no extra fee',              emoji: '🔵', fee: 0     },
+  { code: 'GOPAY',      label: 'GoPay',      description: 'GoPay e-wallet — Rp1.000 transfer fee',     emoji: '🟢', fee: 1_000 },
+  { code: 'LINKAJA',    label: 'LinkAja',    description: 'LinkAja e-wallet — Rp1.000 transfer fee',   emoji: '🔴', fee: 1_000 },
+  { code: 'OTHER_BANK', label: 'Other Bank', description: 'Mandiri, BRI, BNI, CIMB, etc. — Rp2.500',  emoji: '🏛️', fee: 2_500 },
 ] as const;
 
 const PAYMENT_METHOD_BY_CODE: Record<string, PaymentMethod> = Object.fromEntries(

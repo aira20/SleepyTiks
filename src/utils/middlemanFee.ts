@@ -73,6 +73,48 @@ export function parseFeeResponsibility(input: string): FeeResponsibility | null 
   return null;
 }
 
+export interface DbFeeTier {
+  minAmount: number;
+  maxAmount: number | null;
+  fee: number;
+}
+
+/**
+ * Calculates middleman fee using configurable tiers loaded from the database.
+ * Falls back to fee=0 if no tier matches (prevents broken UX on misconfigured guilds).
+ */
+export function calculateMiddlemanFeeFromTiers(
+  amount: number,
+  tiers: DbFeeTier[],
+  responsibility: FeeResponsibility,
+): FeeCalculation {
+  const sorted = [...tiers].sort((a, b) => a.minAmount - b.minAmount);
+  const bracket = sorted.find(t => amount >= t.minAmount && (t.maxAmount === null || amount <= t.maxAmount));
+  const fee = bracket?.fee ?? 0;
+
+  let buyerPays: number;
+  let sellerReceives: number;
+
+  switch (responsibility) {
+    case 'buyer':
+      buyerPays = amount + fee;
+      sellerReceives = amount;
+      break;
+    case 'seller':
+      buyerPays = amount;
+      sellerReceives = amount - fee;
+      break;
+    case 'split': {
+      const half = Math.ceil(fee / 2);
+      buyerPays = amount + half;
+      sellerReceives = amount - (fee - half);
+      break;
+    }
+  }
+
+  return { amount, fee, responsibility, buyerPays, sellerReceives };
+}
+
 /**
  * Calculates the middleman fee and payment breakdown for a transaction.
  */

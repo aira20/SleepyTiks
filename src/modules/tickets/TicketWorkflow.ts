@@ -21,13 +21,18 @@ import {
   validateIDRAmount,
   parseFeeResponsibility,
   calculateMiddlemanFee,
+  calculateMiddlemanFeeFromTiers,
   formatIDR,
   type FeeResponsibility,
 } from '../../utils/middlemanFee';
 import {
   getPaymentMethodFee,
   formatPaymentMethodLabel,
+  getPaymentMethodFeeFromRules,
+  formatPaymentMethodLabelFromRules,
+  type DbPaymentFeeRule,
 } from '../../utils/paymentFee';
+import { ensureGuildDefaults } from '../../utils/defaults';
 import { getLocale } from '../../locales';
 
 const prisma = new PrismaClient();
@@ -161,6 +166,14 @@ export class TicketWorkflow {
       logger.warn(`[Ticket] Guild ${guildId} not configured`);
       return { success: false, message: t.ticket.notConfigured };
     }
+
+    await ensureGuildDefaults(guildId);
+
+    const [paymentSettings, feeTiers, paymentFeeRules] = await Promise.all([
+      prisma.guildPaymentSettings.findUnique({ where: { guildId } }),
+      prisma.middlemanFeeTier.findMany({ where: { guildId }, orderBy: { sortOrder: 'asc' } }),
+      prisma.paymentFeeRule.findMany({ where: { guildId }, orderBy: { sortOrder: 'asc' } }),
+    ]);
 
     const cooldown = await PatternDetector.checkCooldown(guildId, userId, type);
     if (cooldown.onCooldown) {
@@ -335,9 +348,9 @@ export class TicketWorkflow {
 
     logger.info(`[Ticket] Sending welcome message — type=${type}`);
     if (type === 'MIDDLEMAN' && mmParticipants) {
-      await this.sendMiddlemanWelcome(channel, ticket, member, mmParticipants, staffRoleId, lang);
+      await this.sendMiddlemanWelcome(channel, ticket, member, mmParticipants, staffRoleId, lang, feeTiers, paymentFeeRules, paymentSettings);
     } else {
-      await this.sendGenericWelcome(channel, ticket, member, type, lang, staffRoleId);
+      await this.sendGenericWelcome(channel, ticket, member, type, lang, staffRoleId, paymentSettings);
     }
 
     return { success: true, message: t.ticket.created(channel.id), channelId: channel.id };
@@ -350,14 +363,18 @@ export class TicketWorkflow {
     type: TicketType,
     lang: string,
     staffRoleId: string | null,
+    paymentSettings: { bankName: string; accountNumber: string; accountHolder: string } | null,
   ): Promise<void> {
     const t = getLocale(lang);
 
     if (type === 'PURCHASE') {
+      const bankName = paymentSettings?.bankName ?? 'BCA';
+      const accountNumber = paymentSettings?.accountNumber ?? '6760315042';
+      const accountHolder = paymentSettings?.accountHolder ?? 'Azra Reza Satria H';
       const paymentEmbed = new EmbedBuilder()
         .setColor(0xf0b132)
         .setTitle(t.middleman.paymentTitle)
-        .setDescription(t.middleman.paymentInfo)
+        .setDescription(t.middleman.paymentInfo(bankName, accountNumber, accountHolder))
         .addFields({
           name: t.middleman.paymentInstructions,
           value: 'Please transfer to the account above.\nAfter payment, upload your proof of payment in this ticket and wait for staff verification.',
@@ -397,6 +414,9 @@ export class TicketWorkflow {
     participants: MiddlemanParticipants,
     staffRoleId: string | null,
     lang: string,
+    feeTiers: { minAmount: number; maxAmount: number | null; fee: number }[],
+    paymentFeeRules: DbPaymentFeeRule[],
+    paymentSettings: { bankName: string; accountNumber: string; accountHolder: string } | null,
   ): Promise<void> {
     const t = getLocale(lang);
     const { buyer, seller, buyerInput, sellerInput, warnings, amount, feeResponsibility } = participants;
@@ -404,13 +424,28 @@ export class TicketWorkflow {
     const year = new Date().getFullYear();
     const transactionId = `MM-${year}-${String(ticket.ticketNumber).padStart(6, '0')}`;
 
-    const calc = calculateMiddlemanFee(amount, feeResponsibility);
+    // Use DB tiers if available, fall back to hardcoded brackets
+    const calc = feeTiers.length > 0
+      ? calculateMiddlemanFeeFromTiers(amount, feeTiers, feeResponsibility)
+      : calculateMiddlemanFee(amount, feeResponsibility);
 
     const paymentMethodCode = ticket.formData?.payment_method_code as string | undefined;
     const paymentBankName   = ticket.formData?.payment_method_bank as string | undefined;
-    const paymentFee        = getPaymentMethodFee(paymentMethodCode);
-    const paymentMethodLabel = formatPaymentMethodLabel(paymentMethodCode, paymentBankName);
-    const finalBuyerPays    = calc.buyerPays + paymentFee;
+
+    // Use DB rules if available, fall back to hardcoded lookup
+    const paymentFee = paymentFeeRules.length > 0
+      ? getPaymentMethodFeeFromRules(paymentMethodCode, paymentFeeRules)
+      : getPaymentMethodFee(paymentMethodCode);
+
+    const paymentMethodLabel = paymentFeeRules.length > 0
+      ? formatPaymentMethodLabelFromRules(paymentMethodCode, paymentFeeRules)
+      : formatPaymentMethodLabel(paymentMethodCode, paymentBankName);
+
+    const finalBuyerPays = calc.buyerPays + paymentFee;
+
+    const bankName      = paymentSettings?.bankName      ?? 'BCA';
+    const accountNumber = paymentSettings?.accountNumber ?? '6760315042';
+    const accountHolder = paymentSettings?.accountHolder ?? 'Azra Reza Satria H';
 
     const feeLabels = t.middleman.feeLabels;
 
@@ -421,7 +456,7 @@ export class TicketWorkflow {
     const paymentEmbed = new EmbedBuilder()
       .setColor(0xf0b132)
       .setTitle(t.middleman.paymentTitle)
-      .setDescription(t.middleman.paymentInfo)
+      .setDescription(t.middleman.paymentInfo(bankName, accountNumber, accountHolder))
       .addFields({
         name: t.middleman.paymentInstructions,
         value: t.middleman.paymentInstructionText(`Rp ${formatIDR(finalBuyerPays)}`),

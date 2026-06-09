@@ -89,7 +89,7 @@ export interface Locale {
   };
   middleman: {
     paymentTitle: string;
-    paymentInfo: string;
+    paymentInfo: (bankName: string, accountNumber: string, accountHolder: string) => string;
     paymentInstructions: string;
     paymentInstructionText: (amount: string) => string;
     selectPaymentTitle: string;
@@ -252,15 +252,15 @@ export const en: Locale = {
   },
   middleman: {
     paymentTitle: '💳 PAYMENT INFORMATION',
-    paymentInfo: [
+    paymentInfo: (bankName, accountNumber, accountHolder) => [
       '━━━━━━━━━━━━━━━━━━━━━━',
-      '🏦  **BANK BCA**',
+      `🏦  **BANK ${bankName.toUpperCase()}**`,
       '',
       '**Account Number:**',
-      '6760 3150 42',
+      accountNumber,
       '',
       '**Account Holder:**',
-      'Azra Reza Satria H',
+      accountHolder,
       '━━━━━━━━━━━━━━━━━━━━━━',
     ].join('\n'),
     paymentInstructions: 'Instructions',
