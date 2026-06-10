@@ -31,7 +31,7 @@ import {
   canMoveTicket,
   canEscalateTicket,
 } from '../../utils/permissions';
-import { PAYMENT_METHODS } from '../../utils/paymentFee';
+import { CUSTOM_METHOD_VALUE } from '../../utils/paymentFee';
 import {
   setPendingMiddleman,
   takePendingMiddleman,
@@ -488,26 +488,29 @@ export async function handleSelect(interaction: StringSelectMenuInteraction) {
 
   // ── Middleman: payment-method picker ──────────────────────────────────────
   if (interaction.customId === 'ticket:payment_method') {
-    const code = interaction.values[0];
+    const value = interaction.values[0];
     const pending = peekPendingMiddleman(interaction.guildId!, interaction.user.id);
     const lang = (pending?._lang ?? 'en') as SupportedLocale;
     const t = getLocale(lang);
 
-    if (code === 'OTHER_BANK') {
+    if (value === CUSTOM_METHOD_VALUE) {
       if (!pending) {
         await interaction.update({ content: t.ticket.expiredMiddleman, embeds: [], components: [] });
         return;
       }
 
+      const paymentSettings = await prisma.guildPaymentSettings.findUnique({ where: { guildId: interaction.guildId! } });
+      const customLabel = paymentSettings?.customMethodLabel ?? 'Other Payment Method';
+
       const modal = new ModalBuilder()
-        .setCustomId('ticket:other_bank')
-        .setTitle(t.middleman.bankModalTitle)
+        .setCustomId('ticket:custom_payment')
+        .setTitle(customLabel)
         .addComponents(
           new ActionRowBuilder<TextInputBuilder>().addComponents(
             new TextInputBuilder()
-              .setCustomId('bank_name')
-              .setLabel(t.middleman.bankLabel)
-              .setPlaceholder(t.middleman.bankPlaceholder)
+              .setCustomId('custom_method_name')
+              .setLabel(t.middleman.customMethodLabel)
+              .setPlaceholder(t.middleman.customMethodPlaceholder)
               .setStyle(TextInputStyle.Short)
               .setRequired(true)
               .setMinLength(2)
@@ -525,7 +528,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction) {
       return;
     }
 
-    formData.payment_method_code = code;
+    formData.payment_method_name = value;
     await interaction.update({ content: t.ticket.creatingMiddleman, embeds: [], components: [] });
 
     const member = await interaction.guild!.members.fetch(interaction.user.id);
@@ -629,17 +632,38 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
     if (type === 'MIDDLEMAN') {
       setPendingMiddleman(interaction.guildId!, interaction.user.id, formData);
 
+      const [paymentMethods, paymentSettings] = await Promise.all([
+        prisma.paymentFeeRule.findMany({
+          where:   { guildId: interaction.guildId!, enabled: true },
+          orderBy: [{ recommended: 'desc' }, { sortOrder: 'asc' }],
+        }),
+        prisma.guildPaymentSettings.findUnique({ where: { guildId: interaction.guildId! } }),
+      ]);
+
+      const customLabel = paymentSettings?.customMethodLabel ?? 'Other Payment Method';
+      const allowCustom = paymentSettings?.allowCustomPaymentMethods ?? true;
+
+      const options: { label: string; value: string; description?: string }[] = paymentMethods.map(m => ({
+        label:       m.recommended ? `⭐ ${m.methodName}` : m.methodName,
+        value:       m.methodName,
+        description: m.fee > 0
+          ? `${m.description ? m.description + ' · ' : ''}+ Rp ${m.fee.toLocaleString('id-ID')}`
+          : (m.description ?? undefined),
+      }));
+
+      if (allowCustom) {
+        options.push({ label: `🏦 ${customLabel}`, value: CUSTOM_METHOD_VALUE });
+      }
+
+      if (options.length === 0) {
+        await interaction.reply({ content: t.middleman.noPaymentMethods, ephemeral: true });
+        return;
+      }
+
       const select = new StringSelectMenuBuilder()
         .setCustomId('ticket:payment_method')
         .setPlaceholder('Choose how the buyer will pay...')
-        .addOptions(
-          PAYMENT_METHODS.map(m => ({
-            label: m.label,
-            value: m.code,
-            description: m.description,
-            emoji: m.emoji,
-          })),
-        );
+        .addOptions(options.slice(0, 25));
 
       const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
 
@@ -647,11 +671,6 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
         .setColor(0xf0b132)
         .setTitle(t.middleman.selectPaymentTitle)
         .setDescription(t.middleman.selectPaymentDescription)
-        .addFields(
-          { name: '🏦 BCA / OVO / ShopeePay / DANA', value: t.middleman.feeNone,      inline: true },
-          { name: '🟢 GoPay / 🔴 LinkAja',           value: t.middleman.feeGopay,     inline: true },
-          { name: '🏛️ Other Bank',                   value: t.middleman.feeOtherBank, inline: true },
-        )
         .setFooter({ text: t.middleman.feeFooter });
 
       await interaction.reply({ embeds: [intro], components: [row], ephemeral: true });
@@ -682,7 +701,7 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
     return;
   }
 
-  if (action === 'other_bank') {
+  if (action === 'custom_payment') {
     const formData = takePendingMiddleman(interaction.guildId!, interaction.user.id);
     const lang = (formData?._lang ?? 'en') as SupportedLocale;
     const t = getLocale(lang);
@@ -692,14 +711,10 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
       return;
     }
 
-    const bankName = interaction.fields.getTextInputValue('bank_name').trim();
-    if (!bankName) {
-      await interaction.reply({ content: t.ticket.bankNameRequired, ephemeral: true });
-      return;
-    }
+    const customMethodName = interaction.fields.getTextInputValue('custom_method_name').trim();
 
-    formData.payment_method_code = 'OTHER_BANK';
-    formData.payment_method_bank = bankName;
+    formData.payment_method_name   = CUSTOM_METHOD_VALUE;
+    formData.payment_method_custom = customMethodName;
 
     await interaction.deferReply({ ephemeral: true });
     const member = await interaction.guild!.members.fetch(interaction.user.id);

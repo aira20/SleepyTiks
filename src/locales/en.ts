@@ -48,7 +48,6 @@ export interface Locale {
     moveDestination: string;
     expiredMiddleman: string;
     creatingMiddleman: string;
-    bankNameRequired: string;
   };
   close: {
     title: string;
@@ -94,13 +93,10 @@ export interface Locale {
     paymentInstructionText: (amount: string) => string;
     selectPaymentTitle: string;
     selectPaymentDescription: string;
-    feeNone: string;
-    feeGopay: string;
-    feeOtherBank: string;
     feeFooter: string;
-    bankModalTitle: string;
-    bankLabel: string;
-    bankPlaceholder: string;
+    noPaymentMethods: string;
+    customMethodLabel: string;
+    customMethodPlaceholder: string;
     summaryTitle: string;
     summaryText: (itemPrice: string, mmFee: string, payFee: string, payMethod: string, total: string) => string;
     participants: string;
@@ -211,7 +207,6 @@ export const en: Locale = {
     moveDestination: 'Destination',
     expiredMiddleman: '⏰ Your middleman request expired. Please open a new ticket from the panel.',
     creatingMiddleman: '⏳ Creating your middleman ticket...',
-    bankNameRequired: '❌ Bank name is required when "Other Bank" is selected.',
   },
   close: {
     title: '🔒 Ticket Closed',
@@ -268,13 +263,10 @@ export const en: Locale = {
       `**Buyer** must transfer **${amount}** to the account above.\nAfter payment, upload proof of payment in this ticket and wait for staff verification.`,
     selectPaymentTitle: '💳 Select Payment Method',
     selectPaymentDescription: 'Choose the payment method the **buyer** will use. The fee is added on top of the existing middleman fee.',
-    feeNone: 'No additional fee',
-    feeGopay: '+ Rp 1.000',
-    feeOtherBank: '+ Rp 2.500',
     feeFooter: 'Fees are calculated server-side and cannot be changed by users.',
-    bankModalTitle: 'Bank Name',
-    bankLabel: 'Which bank will the buyer use?',
-    bankPlaceholder: 'e.g. Mandiri, BRI, BNI, CIMB, SeaBank, Jago',
+    noPaymentMethods: '❌ No payment methods are configured for this server. Ask an admin to set them up via `/adminpanel`.',
+    customMethodLabel: 'Payment Method Name',
+    customMethodPlaceholder: 'e.g. Monzo, Jago, WeChat Pay, Cash App, Venmo',
     summaryTitle: '💰 Transaction Summary',
     summaryText: (itemPrice, mmFee, payFee, payMethod, total) =>
       '```\n' +

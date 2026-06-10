@@ -1,11 +1,24 @@
 import { prisma } from './prisma';
 import { FEE_BRACKETS } from './middlemanFee';
-import { PAYMENT_METHODS } from './paymentFee';
+
+// ─── Default payment methods seeded for new servers ──────────────────────────
+// Change this list to update what new servers start with.
+// Existing servers are never touched.
+const DEFAULT_PAYMENT_METHODS: {
+  methodName:  string;
+  fee:         number;
+  recommended: boolean;
+  description: string | null;
+}[] = [
+  { methodName: 'BCA',     fee: 0,    recommended: true,  description: null },
+  { methodName: 'SeaBank', fee: 0,    recommended: true,  description: null },
+  { methodName: 'DANA',    fee: 0,    recommended: false, description: null },
+  { methodName: 'GoPay',   fee: 1000, recommended: false, description: null },
+];
 
 /**
- * Ensures all Phase 1 configurable settings exist for a guild.
+ * Ensures all configurable settings exist for a guild.
  * Safe to call on every ticket creation — uses upsert, never overwrites existing config.
- * Seeds defaults that exactly mirror the previous hardcoded behavior.
  */
 export async function ensureGuildDefaults(guildId: string): Promise<void> {
   await Promise.all([
@@ -17,11 +30,11 @@ export async function ensureGuildDefaults(guildId: string): Promise<void> {
 
 async function seedPaymentSettings(guildId: string): Promise<void> {
   await prisma.guildPaymentSettings.upsert({
-    where: { guildId },
+    where:  { guildId },
     update: {},
     create: {
       guildId,
-      bankName: 'BCA',
+      bankName:      'BCA',
       accountNumber: '6760315042',
       accountHolder: 'Azra Reza Satria H',
     },
@@ -37,7 +50,7 @@ async function seedFeeTiers(guildId: string): Promise<void> {
       guildId,
       minAmount: b.min,
       maxAmount: b.max === Infinity ? null : b.max,
-      fee: b.fee,
+      fee:       b.fee,
       sortOrder: i,
     })),
   });
@@ -48,11 +61,14 @@ async function seedPaymentFeeRules(guildId: string): Promise<void> {
   if (existing > 0) return;
 
   await prisma.paymentFeeRule.createMany({
-    data: PAYMENT_METHODS.map((m, i) => ({
+    data: DEFAULT_PAYMENT_METHODS.map((m, i) => ({
       guildId,
-      methodName: m.label,
-      fee: m.fee,
-      sortOrder: i,
+      methodName:  m.methodName,
+      fee:         m.fee,
+      recommended: m.recommended,
+      enabled:     true,
+      description: m.description,
+      sortOrder:   i,
     })),
   });
 }

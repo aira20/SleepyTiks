@@ -26,10 +26,9 @@ import {
   type FeeResponsibility,
 } from '../../utils/middlemanFee';
 import {
-  getPaymentMethodFee,
-  formatPaymentMethodLabel,
   getPaymentMethodFeeFromRules,
-  formatPaymentMethodLabelFromRules,
+  formatPaymentMethodLabel,
+  CUSTOM_METHOD_VALUE,
   type DbPaymentFeeRule,
 } from '../../utils/paymentFee';
 import { ensureGuildDefaults } from '../../utils/defaults';
@@ -172,7 +171,7 @@ export class TicketWorkflow {
     const [paymentSettings, feeTiers, paymentFeeRules] = await Promise.all([
       prisma.guildPaymentSettings.findUnique({ where: { guildId } }),
       prisma.middlemanFeeTier.findMany({ where: { guildId }, orderBy: { sortOrder: 'asc' } }),
-      prisma.paymentFeeRule.findMany({ where: { guildId }, orderBy: { sortOrder: 'asc' } }),
+      prisma.paymentFeeRule.findMany({ where: { guildId, enabled: true }, orderBy: [{ sortOrder: 'asc' }] }),
     ]);
 
     const cooldown = await PatternDetector.checkCooldown(guildId, userId, type);
@@ -416,7 +415,7 @@ export class TicketWorkflow {
     lang: string,
     feeTiers: { minAmount: number; maxAmount: number | null; fee: number }[],
     paymentFeeRules: DbPaymentFeeRule[],
-    paymentSettings: { bankName: string; accountNumber: string; accountHolder: string } | null,
+    paymentSettings: { bankName: string; accountNumber: string; accountHolder: string; allowCustomPaymentMethods: boolean; customMethodFee: number; customMethodLabel: string } | null,
   ): Promise<void> {
     const t = getLocale(lang);
     const { buyer, seller, buyerInput, sellerInput, warnings, amount, feeResponsibility } = participants;
@@ -424,22 +423,23 @@ export class TicketWorkflow {
     const year = new Date().getFullYear();
     const transactionId = `MM-${year}-${String(ticket.ticketNumber).padStart(6, '0')}`;
 
-    // Use DB tiers if available, fall back to hardcoded brackets
     const calc = feeTiers.length > 0
       ? calculateMiddlemanFeeFromTiers(amount, feeTiers, feeResponsibility)
       : calculateMiddlemanFee(amount, feeResponsibility);
 
-    const paymentMethodCode = ticket.formData?.payment_method_code as string | undefined;
-    const paymentBankName   = ticket.formData?.payment_method_bank as string | undefined;
+    // Read payment method from formData — new tickets use payment_method_name,
+    // old tickets (pre-redesign) fall back to payment_method_code for display only.
+    const paymentMethodName   = (ticket.formData?.payment_method_name ?? ticket.formData?.payment_method_code) as string | undefined;
+    const paymentMethodCustom = ticket.formData?.payment_method_custom as string | undefined;
+    const customLabel         = paymentSettings?.customMethodLabel ?? 'Other Payment Method';
 
-    // Use DB rules if available, fall back to hardcoded lookup
-    const paymentFee = paymentFeeRules.length > 0
-      ? getPaymentMethodFeeFromRules(paymentMethodCode, paymentFeeRules)
-      : getPaymentMethodFee(paymentMethodCode);
+    const isCustomMethod = paymentMethodName === CUSTOM_METHOD_VALUE;
 
-    const paymentMethodLabel = paymentFeeRules.length > 0
-      ? formatPaymentMethodLabelFromRules(paymentMethodCode, paymentFeeRules)
-      : formatPaymentMethodLabel(paymentMethodCode, paymentBankName);
+    const paymentFee = isCustomMethod
+      ? (paymentSettings?.customMethodFee ?? 0)
+      : getPaymentMethodFeeFromRules(paymentMethodName, paymentFeeRules);
+
+    const paymentMethodLabel = formatPaymentMethodLabel(paymentMethodName, customLabel, paymentMethodCustom);
 
     const finalBuyerPays = calc.buyerPays + paymentFee;
 

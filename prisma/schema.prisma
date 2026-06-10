@@ -455,15 +455,18 @@ model UserGuildProfile {
 }
 
 model GuildPaymentSettings {
-  id            String   @id @default(cuid())
-  guildId       String   @unique
-  bankName      String   @default("BCA")
-  accountNumber String   @default("6760315042")
-  accountHolder String   @default("Azra Reza Satria H")
-  qrisImageUrl  String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  guild         Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  id                        String   @id @default(cuid())
+  guildId                   String   @unique
+  bankName                  String   @default("BCA")
+  accountNumber             String   @default("6760315042")
+  accountHolder             String   @default("Azra Reza Satria H")
+  qrisImageUrl              String?
+  allowCustomPaymentMethods Boolean  @default(true)
+  customMethodFee           Int      @default(2500)
+  customMethodLabel         String   @default("Other Payment Method")
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+  guild                     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 }
 
 model MiddlemanFeeTier {
@@ -481,14 +484,17 @@ model MiddlemanFeeTier {
 }
 
 model PaymentFeeRule {
-  id           String   @id @default(cuid())
-  guildId      String
-  methodName   String
-  fee          Int
-  sortOrder    Int      @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  guild        Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  id          String   @id @default(cuid())
+  guildId     String
+  methodName  String
+  fee         Int      @default(0)
+  recommended Boolean  @default(false)
+  enabled     Boolean  @default(true)
+  description String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  guild       Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, methodName])
   @@index([guildId])

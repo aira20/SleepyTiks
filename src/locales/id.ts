@@ -56,7 +56,6 @@ export const id: Locale = {
     moveDestination: 'Tujuan',
     expiredMiddleman: '⏰ Permintaan middleman kamu telah kadaluarsa. Silakan buka tiket baru dari panel.',
     creatingMiddleman: '⏳ Membuat tiket middleman kamu...',
-    bankNameRequired: '❌ Nama bank wajib diisi ketika memilih "Bank Lain".',
   },
   close: {
     title: '🔒 Tiket Ditutup',
@@ -113,13 +112,10 @@ export const id: Locale = {
       `**Pembeli** harus mentransfer **${amount}** ke rekening di atas.\nSetelah melakukan pembayaran, unggah bukti pembayaran di tiket ini dan tunggu verifikasi staff.`,
     selectPaymentTitle: '💳 Pilih Metode Pembayaran',
     selectPaymentDescription: 'Pilih metode pembayaran yang akan digunakan **pembeli**. Biaya ditambahkan di atas biaya middleman yang sudah ada.',
-    feeNone: 'Tidak ada biaya tambahan',
-    feeGopay: '+ Rp 1.000',
-    feeOtherBank: '+ Rp 2.500',
     feeFooter: 'Biaya dihitung di sisi server dan tidak dapat diubah oleh pengguna.',
-    bankModalTitle: 'Nama Bank',
-    bankLabel: 'Bank mana yang akan digunakan pembeli?',
-    bankPlaceholder: 'cth. Mandiri, BRI, BNI, CIMB, SeaBank, Jago',
+    noPaymentMethods: '❌ Tidak ada metode pembayaran yang dikonfigurasi untuk server ini. Minta admin untuk mengaturnya melalui `/adminpanel`.',
+    customMethodLabel: 'Nama Metode Pembayaran',
+    customMethodPlaceholder: 'cth. Jago, Neo, WeChat Pay, Cash App, Venmo',
     summaryTitle: '💰 Ringkasan Transaksi',
     summaryText: (itemPrice, mmFee, payFee, payMethod, total) =>
       '```\n' +

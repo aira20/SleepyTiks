@@ -5,6 +5,7 @@ import {
   EmbedBuilder,
   ActionRowBuilder,
   StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   StringSelectMenuInteraction,
   RoleSelectMenuBuilder,
   RoleSelectMenuInteraction,
@@ -62,6 +63,89 @@ function buildMainPanel(guildName: string): { embeds: EmbedBuilder[]; components
     embeds: [embed],
     components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)],
   };
+}
+
+// ── Payment settings — single source of truth ────────────────────────────────
+
+async function buildPaymentSettingsPayload(guildId: string): Promise<{
+  embeds: EmbedBuilder[];
+  components: ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[];
+}> {
+  const [paymentSettings, feeTiers, allRules] = await Promise.all([
+    prisma.guildPaymentSettings.findUnique({ where: { guildId } }),
+    prisma.middlemanFeeTier.findMany({ where: { guildId }, orderBy: { sortOrder: 'asc' } }),
+    prisma.paymentFeeRule.findMany({ where: { guildId }, orderBy: { sortOrder: 'asc' } }),
+  ]);
+
+  const tierLines = feeTiers.map(t => {
+    const max = t.maxAmount === null ? '∞' : `Rp ${formatIDR(t.maxAmount)}`;
+    return `Rp ${formatIDR(t.minAmount)} – ${max} → **Rp ${formatIDR(t.fee)}**`;
+  }).join('\n') || 'No tiers configured.';
+
+  // Display sort: recommended+enabled → recommended+disabled → enabled → disabled
+  // Database sortOrder is never changed here.
+  const sorted = [...allRules].sort((a, b) => {
+    const sa = (a.recommended ? 2 : 0) + (a.enabled ? 1 : 0);
+    const sb = (b.recommended ? 2 : 0) + (b.enabled ? 1 : 0);
+    return sb - sa;
+  });
+
+  const ruleLines = sorted.map(r => {
+    const tags = [r.recommended ? '⭐' : '', r.enabled ? '✅' : '❌'].filter(Boolean).join(' ');
+    const fee  = r.fee > 0 ? ` · Rp ${formatIDR(r.fee)}` : '';
+    const desc = r.description ? ` · ${r.description}` : '';
+    return `${tags} **${r.methodName}**${fee}${desc}`;
+  }).join('\n') || 'No payment methods configured.';
+
+  const customSettings = [
+    `Allow Custom: ${paymentSettings?.allowCustomPaymentMethods ? '✅ Enabled' : '❌ Disabled'}`,
+    `Custom Label: **${paymentSettings?.customMethodLabel ?? 'Other Payment Method'}**`,
+    `Custom Fee: Rp ${formatIDR(paymentSettings?.customMethodFee ?? 2500)}`,
+  ].join('\n');
+
+  const embed = new EmbedBuilder()
+    .setColor(Colors.PRIMARY)
+    .setTitle('💰 Payment Settings')
+    .setDescription('Configure payment info, middleman fee tiers, and payment method fees.')
+    .addFields(
+      {
+        name: '🏦 Bank Information',
+        value: [
+          `**Bank:** ${paymentSettings?.bankName ?? 'BCA'}`,
+          `**Account:** ${paymentSettings?.accountNumber ?? '6760315042'}`,
+          `**Holder:** ${paymentSettings?.accountHolder ?? 'Azra Reza Satria H'}`,
+          paymentSettings?.qrisImageUrl ? `**QRIS:** ${paymentSettings.qrisImageUrl}` : '',
+        ].filter(Boolean).join('\n'),
+        inline: false,
+      },
+      { name: '📊 Middleman Fee Tiers',    value: tierLines,      inline: false },
+      { name: '💳 Payment Methods',        value: ruleLines,      inline: false },
+      { name: '⚙️ Custom Payment Method', value: customSettings, inline: false },
+    );
+
+  const subsectionRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('adminpanel:paymentsub')
+      .setPlaceholder('Select what to configure...')
+      .addOptions([
+        { label: '🏦 Edit Bank Information',          description: 'Update bank name, account number, holder',  value: 'bankinfo' },
+        { label: '➕ Add Fee Tier',                    description: 'Add a new middleman fee bracket',           value: 'tier_add' },
+        { label: '✏️ Edit Fee Tier',                   description: 'Modify an existing fee bracket',           value: 'tier_edit' },
+        { label: '🗑️ Delete Fee Tier',                 description: 'Remove a fee bracket',                     value: 'tier_delete' },
+        { label: '➕ Add Payment Method',              description: 'Add a new payment method',                  value: 'rule_add' },
+        { label: '✏️ Edit Payment Method',             description: 'Modify an existing payment method',         value: 'rule_edit' },
+        { label: '🗑️ Delete Payment Method',           description: 'Remove a payment method',                  value: 'rule_delete' },
+        { label: '✅ Manage Enabled Methods',          description: 'Bulk enable or disable payment methods',    value: 'rule_enabled' },
+        { label: '⭐ Set Recommended Methods',         description: 'Bulk set recommended payment methods',      value: 'rule_recommend' },
+        { label: '⚙️ Custom Payment Method Settings', description: 'Allow custom methods, set label and fee',   value: 'custom_settings' },
+      ]),
+  );
+
+  const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId('adminpanel:back').setLabel('← Back').setStyle(ButtonStyle.Secondary),
+  );
+
+  return { embeds: [embed], components: [subsectionRow, backRow] };
 }
 
 export async function execute(interaction: ChatInputCommandInteraction) {
@@ -235,61 +319,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
 
     if (section === 'payment') {
       await ensureGuildDefaults(guildId);
-
-      const [paymentSettings, feeTiers, paymentFeeRules] = await Promise.all([
-        prisma.guildPaymentSettings.findUnique({ where: { guildId } }),
-        prisma.middlemanFeeTier.findMany({ where: { guildId }, orderBy: { sortOrder: 'asc' } }),
-        prisma.paymentFeeRule.findMany({ where: { guildId }, orderBy: { sortOrder: 'asc' } }),
-      ]);
-
-      const tierLines = feeTiers.map(t => {
-        const max = t.maxAmount === null ? '∞' : `Rp ${formatIDR(t.maxAmount)}`;
-        return `Rp ${formatIDR(t.minAmount)} – ${max} → **Rp ${formatIDR(t.fee)}**`;
-      }).join('\n') || 'No tiers configured.';
-
-      const ruleLines = paymentFeeRules.map(r =>
-        `${r.methodName} → **Rp ${formatIDR(r.fee)}**`,
-      ).join('\n') || 'No rules configured.';
-
-      const embed = new EmbedBuilder()
-        .setColor(Colors.PRIMARY)
-        .setTitle('💰 Payment Settings')
-        .setDescription('Configure payment info, middleman fee tiers, and payment method fees.')
-        .addFields(
-          {
-            name: '🏦 Bank Information',
-            value: [
-              `**Bank:** ${paymentSettings?.bankName ?? 'BCA'}`,
-              `**Account:** ${paymentSettings?.accountNumber ?? '6760315042'}`,
-              `**Holder:** ${paymentSettings?.accountHolder ?? 'Azra Reza Satria H'}`,
-              paymentSettings?.qrisImageUrl ? `**QRIS:** ${paymentSettings.qrisImageUrl}` : '',
-            ].filter(Boolean).join('\n'),
-            inline: false,
-          },
-          { name: '📊 Middleman Fee Tiers', value: tierLines, inline: false },
-          { name: '💳 Payment Fee Rules', value: ruleLines, inline: false },
-        );
-
-      const subsectionRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId('adminpanel:paymentsub')
-          .setPlaceholder('Select what to configure...')
-          .addOptions([
-            { label: '🏦 Edit Bank Information', description: 'Update bank name, account number, holder', value: 'bankinfo' },
-            { label: '➕ Add Fee Tier', description: 'Add a new middleman fee bracket', value: 'tier_add' },
-            { label: '✏️ Edit Fee Tier', description: 'Modify an existing fee bracket', value: 'tier_edit' },
-            { label: '🗑️ Delete Fee Tier', description: 'Remove a fee bracket', value: 'tier_delete' },
-            { label: '➕ Add Payment Rule', description: 'Add a new payment method fee rule', value: 'rule_add' },
-            { label: '✏️ Edit Payment Rule', description: 'Modify an existing payment rule', value: 'rule_edit' },
-            { label: '🗑️ Delete Payment Rule', description: 'Remove a payment rule', value: 'rule_delete' },
-          ]),
-      );
-
-      const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('adminpanel:back').setLabel('← Back').setStyle(ButtonStyle.Secondary),
-      );
-
-      await interaction.update({ embeds: [embed], components: [subsectionRow, backRow] });
+      await interaction.update(await buildPaymentSettingsPayload(guildId));
       return;
     }
   }
@@ -412,16 +442,24 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     if (sub === 'rule_add') {
       const modal = new ModalBuilder()
         .setCustomId('adminpanel:modal:rule_add')
-        .setTitle('Add Payment Fee Rule');
+        .setTitle('Add Payment Method');
 
       modal.addComponents(
         new ActionRowBuilder<TextInputBuilder>().addComponents(
-          new TextInputBuilder().setCustomId('methodName').setLabel('Payment Method Name').setStyle(TextInputStyle.Short)
-            .setPlaceholder('e.g. GoPay, SeaBank, BRI').setRequired(true).setMaxLength(50),
+          new TextInputBuilder().setCustomId('methodName').setLabel('Method Name').setStyle(TextInputStyle.Short)
+            .setPlaceholder('e.g. BCA, PayPal, USDT, Wise').setRequired(true).setMaxLength(50),
         ),
         new ActionRowBuilder<TextInputBuilder>().addComponents(
           new TextInputBuilder().setCustomId('fee').setLabel('Additional Fee (IDR)').setStyle(TextInputStyle.Short)
-            .setPlaceholder('e.g. 2500').setRequired(true).setMaxLength(15),
+            .setPlaceholder('e.g. 2500 — enter 0 for no fee').setRequired(true).setMaxLength(15),
+        ),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder().setCustomId('description').setLabel('Description (optional)').setStyle(TextInputStyle.Short)
+            .setPlaceholder('e.g. International bank transfer').setRequired(false).setMaxLength(100),
+        ),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder().setCustomId('recommended').setLabel('Recommended? (yes / no)').setStyle(TextInputStyle.Short)
+            .setPlaceholder('yes or no').setRequired(true).setMaxLength(3),
         ),
       );
 
@@ -484,6 +522,103 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
       });
       return;
     }
+
+    if (sub === 'rule_enabled') {
+      // Fresh query — fixes stale-data bug
+      const rules = await prisma.paymentFeeRule.findMany({ where: { guildId }, orderBy: { sortOrder: 'asc' } });
+      if (rules.length === 0) {
+        await interaction.update({
+          embeds: [new EmbedBuilder().setColor(Colors.WARNING).setTitle('⚠️ No Methods').setDescription('No payment methods exist. Add one first.')],
+          components: [backRow],
+        });
+        return;
+      }
+      // Enabled methods first, then disabled
+      const sorted = [...rules].sort((a, b) => Number(b.enabled) - Number(a.enabled));
+      const options = sorted.slice(0, 25).map(r =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(r.methodName)
+          .setDescription(r.enabled ? '✅ Currently Enabled' : '❌ Currently Disabled')
+          .setValue(r.id)
+          .setDefault(r.enabled),
+      );
+      await interaction.update({
+        embeds: [new EmbedBuilder().setColor(Colors.PRIMARY).setTitle('✅ Manage Enabled Methods')
+          .setDescription('Select all methods that should be **enabled**. Unselected methods will be **disabled**.\n\nSubmit with nothing selected to disable all.')],
+        components: [
+          new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+            new StringSelectMenuBuilder()
+              .setCustomId('adminpanel:rule_enabled_select')
+              .setPlaceholder('Select enabled methods...')
+              .setMinValues(0)
+              .setMaxValues(Math.min(rules.length, 25))
+              .addOptions(options),
+          ),
+          backRow,
+        ],
+      });
+      return;
+    }
+
+    if (sub === 'rule_recommend') {
+      // Fresh query
+      const rules = await prisma.paymentFeeRule.findMany({ where: { guildId }, orderBy: { sortOrder: 'asc' } });
+      if (rules.length === 0) {
+        await interaction.update({
+          embeds: [new EmbedBuilder().setColor(Colors.WARNING).setTitle('⚠️ No Methods').setDescription('No payment methods exist. Add one first.')],
+          components: [backRow],
+        });
+        return;
+      }
+      // Recommended methods first, then rest
+      const sorted = [...rules].sort((a, b) => Number(b.recommended) - Number(a.recommended));
+      const options = sorted.slice(0, 25).map(r =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(r.methodName)
+          .setDescription(r.recommended ? '⭐ Currently Recommended' : 'Not Recommended')
+          .setValue(r.id)
+          .setDefault(r.recommended),
+      );
+      await interaction.update({
+        embeds: [new EmbedBuilder().setColor(Colors.PRIMARY).setTitle('⭐ Set Recommended Methods')
+          .setDescription('Select all methods that should be **recommended**. Unselected methods will be unmarked.\n\nSubmit with nothing selected to clear all recommendations.')],
+        components: [
+          new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+            new StringSelectMenuBuilder()
+              .setCustomId('adminpanel:rule_recommend_select')
+              .setPlaceholder('Select recommended methods...')
+              .setMinValues(0)
+              .setMaxValues(Math.min(rules.length, 25))
+              .addOptions(options),
+          ),
+          backRow,
+        ],
+      });
+      return;
+    }
+
+    if (sub === 'custom_settings') {
+      const current = await prisma.guildPaymentSettings.findUnique({ where: { guildId } });
+      const modal = new ModalBuilder()
+        .setCustomId('adminpanel:modal:custom_settings')
+        .setTitle('Custom Payment Method Settings');
+      modal.addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder().setCustomId('allowCustom').setLabel('Allow Custom Methods? (yes / no)').setStyle(TextInputStyle.Short)
+            .setValue(current?.allowCustomPaymentMethods !== false ? 'yes' : 'no').setRequired(true).setMaxLength(3),
+        ),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder().setCustomId('customLabel').setLabel('Custom Method Label').setStyle(TextInputStyle.Short)
+            .setValue(current?.customMethodLabel ?? 'Other Payment Method').setRequired(true).setMaxLength(50),
+        ),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder().setCustomId('customFee').setLabel('Custom Method Fee (IDR)').setStyle(TextInputStyle.Short)
+            .setValue(String(current?.customMethodFee ?? 2500)).setRequired(true).setMaxLength(15),
+        ),
+      );
+      await interaction.showModal(modal);
+      return;
+    }
   }
 
   // ── Tier edit: tier selected → show prefilled modal ──────────────────────
@@ -515,16 +650,11 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     return;
   }
 
-  // ── Tier delete: tier selected → confirm and delete ──────────────────────
+  // ── Tier delete: tier selected → delete and auto-refresh ────────────────
   if (action === 'tier_delete_select' && interaction.isStringSelectMenu()) {
     const tierId = interaction.values[0];
     await prisma.middlemanFeeTier.delete({ where: { id: tierId } });
-    await interaction.update({
-      embeds: [new EmbedBuilder().setColor(Colors.SUCCESS).setTitle('✅ Tier Deleted').setDescription('The fee tier has been removed.')],
-      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('adminpanel:back:payment').setLabel('← Back to Payment Settings').setStyle(ButtonStyle.Secondary),
-      )],
-    });
+    await interaction.update(await buildPaymentSettingsPayload(guildId));
     return;
   }
 
@@ -536,16 +666,24 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
 
     const modal = new ModalBuilder()
       .setCustomId(`adminpanel:modal:rule_edit:${ruleId}`)
-      .setTitle('Edit Payment Fee Rule');
+      .setTitle('Edit Payment Method');
 
     modal.addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder().setCustomId('methodName').setLabel('Payment Method Name').setStyle(TextInputStyle.Short)
+        new TextInputBuilder().setCustomId('methodName').setLabel('Method Name').setStyle(TextInputStyle.Short)
           .setValue(rule.methodName).setRequired(true).setMaxLength(50),
       ),
       new ActionRowBuilder<TextInputBuilder>().addComponents(
         new TextInputBuilder().setCustomId('fee').setLabel('Additional Fee (IDR)').setStyle(TextInputStyle.Short)
           .setValue(String(rule.fee)).setRequired(true).setMaxLength(15),
+      ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder().setCustomId('description').setLabel('Description (optional)').setStyle(TextInputStyle.Short)
+          .setValue(rule.description ?? '').setRequired(false).setMaxLength(100),
+      ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder().setCustomId('recommended').setLabel('Recommended? (yes / no)').setStyle(TextInputStyle.Short)
+          .setValue(rule.recommended ? 'yes' : 'no').setRequired(true).setMaxLength(3),
       ),
     );
 
@@ -553,16 +691,37 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     return;
   }
 
-  // ── Rule delete: rule selected → confirm and delete ──────────────────────
+  // ── Rule delete: rule selected → delete and auto-refresh ────────────────
   if (action === 'rule_delete_select' && interaction.isStringSelectMenu()) {
     const ruleId = interaction.values[0];
     await prisma.paymentFeeRule.delete({ where: { id: ruleId } });
-    await interaction.update({
-      embeds: [new EmbedBuilder().setColor(Colors.SUCCESS).setTitle('✅ Rule Deleted').setDescription('The payment fee rule has been removed.')],
-      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('adminpanel:back:payment').setLabel('← Back to Payment Settings').setStyle(ButtonStyle.Secondary),
-      )],
-    });
+    await interaction.update(await buildPaymentSettingsPayload(guildId));
+    return;
+  }
+
+  // ── Rule enabled: bulk update enabled status ─────────────────────────────
+  if (action === 'rule_enabled_select' && interaction.isStringSelectMenu()) {
+    const selectedIds = interaction.values;
+    await Promise.all([
+      selectedIds.length > 0
+        ? prisma.paymentFeeRule.updateMany({ where: { guildId, id: { in: selectedIds } },    data: { enabled: true } })
+        : Promise.resolve(),
+      prisma.paymentFeeRule.updateMany({ where: { guildId, id: { notIn: selectedIds } }, data: { enabled: false } }),
+    ]);
+    await interaction.update(await buildPaymentSettingsPayload(guildId));
+    return;
+  }
+
+  // ── Rule recommend: bulk update recommended status ────────────────────────
+  if (action === 'rule_recommend_select' && interaction.isStringSelectMenu()) {
+    const selectedIds = interaction.values;
+    await Promise.all([
+      selectedIds.length > 0
+        ? prisma.paymentFeeRule.updateMany({ where: { guildId, id: { in: selectedIds } },    data: { recommended: true } })
+        : Promise.resolve(),
+      prisma.paymentFeeRule.updateMany({ where: { guildId, id: { notIn: selectedIds } }, data: { recommended: false } }),
+    ]);
+    await interaction.update(await buildPaymentSettingsPayload(guildId));
     return;
   }
 
@@ -671,63 +830,7 @@ export async function handleButton(interaction: ButtonInteraction) {
   }
 
   if (action === 'back' && field === 'payment') {
-    // Back to payment settings section
-    await ensureGuildDefaults(guildId);
-
-    const [paymentSettings, feeTiers, paymentFeeRules] = await Promise.all([
-      prisma.guildPaymentSettings.findUnique({ where: { guildId } }),
-      prisma.middlemanFeeTier.findMany({ where: { guildId }, orderBy: { sortOrder: 'asc' } }),
-      prisma.paymentFeeRule.findMany({ where: { guildId }, orderBy: { sortOrder: 'asc' } }),
-    ]);
-
-    const tierLines = feeTiers.map(t => {
-      const max = t.maxAmount === null ? '∞' : `Rp ${formatIDR(t.maxAmount)}`;
-      return `Rp ${formatIDR(t.minAmount)} – ${max} → **Rp ${formatIDR(t.fee)}**`;
-    }).join('\n') || 'No tiers configured.';
-
-    const ruleLines = paymentFeeRules.map(r =>
-      `${r.methodName} → **Rp ${formatIDR(r.fee)}**`,
-    ).join('\n') || 'No rules configured.';
-
-    const embed = new EmbedBuilder()
-      .setColor(Colors.PRIMARY)
-      .setTitle('💰 Payment Settings')
-      .setDescription('Configure payment info, middleman fee tiers, and payment method fees.')
-      .addFields(
-        {
-          name: '🏦 Bank Information',
-          value: [
-            `**Bank:** ${paymentSettings?.bankName ?? 'BCA'}`,
-            `**Account:** ${paymentSettings?.accountNumber ?? '6760315042'}`,
-            `**Holder:** ${paymentSettings?.accountHolder ?? 'Azra Reza Satria H'}`,
-            paymentSettings?.qrisImageUrl ? `**QRIS:** ${paymentSettings.qrisImageUrl}` : '',
-          ].filter(Boolean).join('\n'),
-          inline: false,
-        },
-        { name: '📊 Middleman Fee Tiers', value: tierLines, inline: false },
-        { name: '💳 Payment Fee Rules', value: ruleLines, inline: false },
-      );
-
-    const subsectionRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      new StringSelectMenuBuilder()
-        .setCustomId('adminpanel:paymentsub')
-        .setPlaceholder('Select what to configure...')
-        .addOptions([
-          { label: '🏦 Edit Bank Information', description: 'Update bank name, account number, holder', value: 'bankinfo' },
-          { label: '➕ Add Fee Tier', description: 'Add a new middleman fee bracket', value: 'tier_add' },
-          { label: '✏️ Edit Fee Tier', description: 'Modify an existing fee bracket', value: 'tier_edit' },
-          { label: '🗑️ Delete Fee Tier', description: 'Remove a fee bracket', value: 'tier_delete' },
-          { label: '➕ Add Payment Rule', description: 'Add a new payment method fee rule', value: 'rule_add' },
-          { label: '✏️ Edit Payment Rule', description: 'Modify an existing payment rule', value: 'rule_edit' },
-          { label: '🗑️ Delete Payment Rule', description: 'Remove a payment rule', value: 'rule_delete' },
-        ]),
-    );
-
-    const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId('adminpanel:back').setLabel('← Back').setStyle(ButtonStyle.Secondary),
-    );
-
-    await interaction.update({ embeds: [embed], components: [subsectionRow, backRow] });
+    await interaction.update(await buildPaymentSettingsPayload(guildId));
     return;
   }
 
@@ -792,10 +895,6 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
   const modalType = parts[2];
   const entityId  = parts[3];
 
-  const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId('adminpanel:back:payment').setLabel('← Back to Payment Settings').setStyle(ButtonStyle.Secondary),
-  );
-
   if (modalType === 'bankinfo') {
     const bankName      = interaction.fields.getTextInputValue('bankName').trim();
     const accountNumber = interaction.fields.getTextInputValue('accountNumber').trim();
@@ -803,22 +902,13 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
     const qrisImageUrl  = interaction.fields.getTextInputValue('qrisImageUrl').trim() || null;
 
     await prisma.guildPaymentSettings.upsert({
-      where: { guildId },
+      where:  { guildId },
       update: { bankName, accountNumber, accountHolder, qrisImageUrl },
       create: { guildId, bankName, accountNumber, accountHolder, qrisImageUrl },
     });
 
-    await interaction.reply({
-      embeds: [new EmbedBuilder().setColor(Colors.SUCCESS).setTitle('✅ Bank Information Updated')
-        .addFields(
-          { name: 'Bank', value: bankName, inline: true },
-          { name: 'Account Number', value: accountNumber, inline: true },
-          { name: 'Account Holder', value: accountHolder, inline: true },
-          ...(qrisImageUrl ? [{ name: 'QRIS URL', value: qrisImageUrl, inline: false }] : []),
-        )],
-      components: [backRow],
-      ephemeral: true,
-    });
+    await interaction.deferReply({ ephemeral: true });
+    await interaction.editReply(await buildPaymentSettingsPayload(guildId));
     return;
   }
 
@@ -839,12 +929,8 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
     const count = await prisma.middlemanFeeTier.count({ where: { guildId } });
     await prisma.middlemanFeeTier.create({ data: { guildId, minAmount, maxAmount, fee, sortOrder: count } });
 
-    await interaction.reply({
-      embeds: [new EmbedBuilder().setColor(Colors.SUCCESS).setTitle('✅ Fee Tier Added')
-        .setDescription(`Rp ${minAmount.toLocaleString('id-ID')} – ${maxAmount ? `Rp ${maxAmount.toLocaleString('id-ID')}` : '∞'} → **Rp ${fee.toLocaleString('id-ID')}**`)],
-      components: [backRow],
-      ephemeral: true,
-    });
+    await interaction.deferReply({ ephemeral: true });
+    await interaction.editReply(await buildPaymentSettingsPayload(guildId));
     return;
   }
 
@@ -864,19 +950,17 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
 
     await prisma.middlemanFeeTier.update({ where: { id: entityId }, data: { minAmount, maxAmount, fee } });
 
-    await interaction.reply({
-      embeds: [new EmbedBuilder().setColor(Colors.SUCCESS).setTitle('✅ Fee Tier Updated')
-        .setDescription(`Rp ${minAmount.toLocaleString('id-ID')} – ${maxAmount ? `Rp ${maxAmount.toLocaleString('id-ID')}` : '∞'} → **Rp ${fee.toLocaleString('id-ID')}**`)],
-      components: [backRow],
-      ephemeral: true,
-    });
+    await interaction.deferReply({ ephemeral: true });
+    await interaction.editReply(await buildPaymentSettingsPayload(guildId));
     return;
   }
 
   if (modalType === 'rule_add') {
-    const methodName = interaction.fields.getTextInputValue('methodName').trim();
-    const feeRaw     = interaction.fields.getTextInputValue('fee').trim().replace(/\D/g, '');
-    const fee        = parseInt(feeRaw, 10);
+    const methodName  = interaction.fields.getTextInputValue('methodName').trim();
+    const feeRaw      = interaction.fields.getTextInputValue('fee').trim().replace(/\D/g, '');
+    const fee         = parseInt(feeRaw, 10);
+    const description = interaction.fields.getTextInputValue('description').trim() || null;
+    const recommended = interaction.fields.getTextInputValue('recommended').trim().toLowerCase() === 'yes';
 
     if (!methodName || isNaN(fee)) {
       await interaction.reply({ content: '❌ Invalid input. Method name and fee are required.', ephemeral: true });
@@ -885,38 +969,54 @@ export async function handleModal(interaction: ModalSubmitInteraction) {
 
     const count = await prisma.paymentFeeRule.count({ where: { guildId } });
     await prisma.paymentFeeRule.upsert({
-      where: { guildId_methodName: { guildId, methodName } },
-      update: { fee },
-      create: { guildId, methodName, fee, sortOrder: count },
+      where:  { guildId_methodName: { guildId, methodName } },
+      update: { fee, description, recommended },
+      create: { guildId, methodName, fee, description, recommended, enabled: true, sortOrder: count },
     });
 
-    await interaction.reply({
-      embeds: [new EmbedBuilder().setColor(Colors.SUCCESS).setTitle('✅ Payment Rule Saved')
-        .setDescription(`**${methodName}** → Rp ${fee.toLocaleString('id-ID')}`)],
-      components: [backRow],
-      ephemeral: true,
-    });
+    await interaction.deferReply({ ephemeral: true });
+    await interaction.editReply(await buildPaymentSettingsPayload(guildId));
     return;
   }
 
   if (modalType === 'rule_edit' && entityId) {
-    const methodName = interaction.fields.getTextInputValue('methodName').trim();
-    const feeRaw     = interaction.fields.getTextInputValue('fee').trim().replace(/\D/g, '');
-    const fee        = parseInt(feeRaw, 10);
+    const methodName  = interaction.fields.getTextInputValue('methodName').trim();
+    const feeRaw      = interaction.fields.getTextInputValue('fee').trim().replace(/\D/g, '');
+    const fee         = parseInt(feeRaw, 10);
+    const description = interaction.fields.getTextInputValue('description').trim() || null;
+    const recommended = interaction.fields.getTextInputValue('recommended').trim().toLowerCase() === 'yes';
 
     if (!methodName || isNaN(fee)) {
       await interaction.reply({ content: '❌ Invalid input. Method name and fee are required.', ephemeral: true });
       return;
     }
 
-    await prisma.paymentFeeRule.update({ where: { id: entityId }, data: { methodName, fee } });
+    await prisma.paymentFeeRule.update({ where: { id: entityId }, data: { methodName, fee, description, recommended } });
 
-    await interaction.reply({
-      embeds: [new EmbedBuilder().setColor(Colors.SUCCESS).setTitle('✅ Payment Rule Updated')
-        .setDescription(`**${methodName}** → Rp ${fee.toLocaleString('id-ID')}`)],
-      components: [backRow],
-      ephemeral: true,
+    await interaction.deferReply({ ephemeral: true });
+    await interaction.editReply(await buildPaymentSettingsPayload(guildId));
+    return;
+  }
+
+  if (modalType === 'custom_settings') {
+    const allowRaw    = interaction.fields.getTextInputValue('allowCustom').trim().toLowerCase();
+    const customLabel = interaction.fields.getTextInputValue('customLabel').trim();
+    const feeRaw      = interaction.fields.getTextInputValue('customFee').trim().replace(/\D/g, '');
+    const customFee   = parseInt(feeRaw, 10);
+
+    if (!customLabel || isNaN(customFee)) {
+      await interaction.reply({ content: '❌ Invalid input. Label and fee are required.', ephemeral: true });
+      return;
+    }
+
+    const allowCustom = allowRaw === 'yes';
+    await prisma.guildPaymentSettings.update({
+      where: { guildId },
+      data:  { allowCustomPaymentMethods: allowCustom, customMethodLabel: customLabel, customMethodFee: customFee },
     });
+
+    await interaction.deferReply({ ephemeral: true });
+    await interaction.editReply(await buildPaymentSettingsPayload(guildId));
     return;
   }
 }
