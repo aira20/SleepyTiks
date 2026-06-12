@@ -1,3 +1,8 @@
+// DO THIS NEXT, WAJIB
+
+
+// DONE PROCESS -> POP UP OR BUTTON SHOW UP -> PRESS VOUCH WITH STARS => 5, AND THIS WILL BE GLOBALLY SEEN (TO SHOW TRUSTY MIDDLEMAN)
+
 import { PrismaClient } from '@prisma/client';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { EmbedBuilder } from 'discord.js';

@@ -22,7 +22,7 @@ interface SimpleCreateOptions {
 }
 
 export class MiddlemanManager {
-  // â”€â”€ Create Transaction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Bikin transaksi baru, sekalian generate humanId-nya
   static async createTransaction(options: TransactionCreateOptions) {
     const {
       guildId, buyerId, buyerTag, sellerId, sellerTag,
@@ -54,7 +54,7 @@ export class MiddlemanManager {
     return transaction;
   }
 
-  // â”€â”€ Update Status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Update status transaksi + history-nya, dicek dulu transition-nya valid gak
   static async updateStatus(options: TransactionStatusUpdate) {
     const { transactionId, newStatus, updatedById, updatedByTag, note, proofUrl } = options;
 
@@ -132,7 +132,7 @@ export class MiddlemanManager {
     }
   }
 
-  // â”€â”€ Command-facing helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Helpers buat dipanggil langsung dari slash command
   async createTransaction(opts: SimpleCreateOptions, interaction: ChatInputCommandInteraction) {
     try {
       const buyer  = await interaction.client.users.fetch(opts.buyerId);

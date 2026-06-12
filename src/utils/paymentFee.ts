@@ -1,8 +1,6 @@
-// ─── Payment Method Fee Service ──────────────────────────────────────────────
-//
-// Fully database-driven. No hardcoded payment methods.
-// Server owners configure methods via the Admin Panel.
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Payment Method Fee Service
+// Semua dari database, ga ada yang hardcoded.
+// Owner server tinggal atur sendiri lewat Admin Panel.
 
 export interface DbPaymentFeeRule {
   id:          string;

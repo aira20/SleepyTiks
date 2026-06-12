@@ -57,7 +57,7 @@ export async function handleButton(interaction: ButtonInteraction) {
   const parts = interaction.customId.split(':');
   const action = parts[1];
 
-  // ── Step 2: type selected → open modal ───────────────────────────────────
+  // ── Step 2 — user udah pilih type ticketnya, langsung buka modal
   if (action === 'type') {
     const type = parts[2] as TicketType;
     const lang = (parts[3] ?? 'en') as SupportedLocale;
@@ -65,7 +65,7 @@ export async function handleButton(interaction: ButtonInteraction) {
     return;
   }
 
-  // ── Step 3 (open buttons kept for backward compat): ticket:open:TYPE:lang ─
+  // ── Step 3 (tombol lama, dipertahanin biar ga break) — ticket:open:TYPE:lang
   if (action === 'open') {
     const type = parts[2] as TicketType;
     const lang = (parts[3] ?? 'en') as SupportedLocale;
@@ -73,7 +73,7 @@ export async function handleButton(interaction: ButtonInteraction) {
     return;
   }
 
-  // ── In-ticket action buttons ──────────────────────────────────────────────
+  // ── Tombol-tombol yang ada di dalem ticket (claim, close, reopen, dll.)
   const ticketId = parts[2];
   if (!ticketId) {
     await interaction.reply({ content: 'Invalid button.', ephemeral: true });
@@ -339,7 +339,7 @@ export async function handleButton(interaction: ButtonInteraction) {
   await interaction.reply({ content: t.ticket.unknownAction, ephemeral: true });
 }
 
-// ── Shared helper: show modal for a given type + language ──────────────────
+// ── Helper bareng buat nampilin modal sesuai type ticket + bahasa
 async function openTicketModal(
   interaction: ButtonInteraction,
   type: TicketType,
@@ -413,7 +413,7 @@ async function openTicketModal(
 }
 
 export async function handleSelect(interaction: StringSelectMenuInteraction) {
-  // ── Step 1: panel language selected → show type buttons ──────────────────
+  // ── Step 1 — user pilih bahasa, baru muncul pilihan tipe ticketnya
   if (interaction.customId === 'ticket:panel_lang') {
     const lang = interaction.values[0] as SupportedLocale;
     const t = getLocale(lang);
@@ -438,7 +438,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction) {
     return;
   }
 
-  // ── Step 2: language selected (legacy flow) → open modal ─────────────────
+  // ── Step 2 (flow lama) — bahasa udah dipilih, langsung buka modal
   if (interaction.customId.startsWith('ticket:lang_select:')) {
     const type = interaction.customId.split(':')[2] as TicketType;
     const lang = interaction.values[0] as SupportedLocale;
@@ -446,7 +446,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction) {
     return;
   }
 
-  // ── Move ticket: category select ──────────────────────────────────────────
+  // ── Move ticket — user pilih category tujuannya
   if (interaction.customId === 'ticket:move_select') {
     await interaction.deferUpdate();
 
@@ -486,7 +486,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction) {
     return;
   }
 
-  // ── Middleman: payment-method picker ──────────────────────────────────────
+  // ── Middleman — pilihan metode pembayaran abis isi form
   if (interaction.customId === 'ticket:payment_method') {
     const value = interaction.values[0];
     const pending = peekPendingMiddleman(interaction.guildId!, interaction.user.id);

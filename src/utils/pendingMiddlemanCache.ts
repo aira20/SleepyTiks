@@ -1,14 +1,11 @@
-// ─── Pending Middleman Cache ────────────────────────────────────────────────
+// ── Pending Middleman Cache
+// Flow middleman butuh data payment-method SETELAH modal awal ketutup
+// (modal Discord ga bisa ada select menu di dalemnya, plus udah mentok
+// 5-input cap). Biar user experience-nya tetep mulus kayak satu flow,
+// data form yang udah valid kita simpen di sini pake key guildId+userId,
+// terus diambil pas user milih metode pembayaran di select menu lanjutan.
 //
-// The middleman ticket flow needs to collect payment-method info AFTER the
-// initial form modal closes (Discord modals don't allow select menus inside,
-// and we hit the 5-input cap with the existing fields). To keep the user
-// experience as a single continuous flow we stash the validated form data
-// here keyed by guildId+userId, then drain it when the user picks a payment
-// method from the follow-up select menu.
-//
-// Entries auto-expire so an abandoned flow can't pile up in memory.
-// ─────────────────────────────────────────────────────────────────────────────
+// Entry-nya auto-expire biar flow yang ditinggal ga numpuk di memory.
 
 export interface PendingMiddleman {
   formData: Record<string, string>;

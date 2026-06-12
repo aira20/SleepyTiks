@@ -31,7 +31,7 @@ export const data = new SlashCommandBuilder()
   .setDescription('Open the bot administration panel')
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
-// ── Main panel embed + section dropdown ──────────────────────────────────────
+// ── Ini buat drop down di panelnya || UNTUK ADMIN PANEL - JANGAN DI UTAK UTIK
 
 function buildMainPanel(guildName: string): { embeds: EmbedBuilder[]; components: ActionRowBuilder<StringSelectMenuBuilder>[] } {
   const embed = new EmbedBuilder()
@@ -65,7 +65,7 @@ function buildMainPanel(guildName: string): { embeds: EmbedBuilder[]; components
   };
 }
 
-// ── Payment settings — single source of truth ────────────────────────────────
+// ── Semua settingan payment di sini, satu tempat aja biar gampang
 
 async function buildPaymentSettingsPayload(guildId: string): Promise<{
   embeds: EmbedBuilder[];
@@ -82,7 +82,7 @@ async function buildPaymentSettingsPayload(guildId: string): Promise<{
     return `Rp ${formatIDR(t.minAmount)} – ${max} → **Rp ${formatIDR(t.fee)}**`;
   }).join('\n') || 'No tiers configured.';
 
-  // Display sort: recommended+enabled → recommended+disabled → enabled → disabled
+  // BUAT BANK APA AJA YANG RECOMMENDED -- DISABLED JUGA BISA 
   // Database sortOrder is never changed here.
   const sorted = [...allRules].sort((a, b) => {
     const sa = (a.recommended ? 2 : 0) + (a.enabled ? 1 : 0);
@@ -161,7 +161,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   await interaction.reply({ ...panel, ephemeral: true });
 }
 
-// ── Section select handler ────────────────────────────────────────────────────
+// ── Handler buat semua dropdown di admin panel
 
 export async function handleSelect(interaction: StringSelectMenuInteraction | RoleSelectMenuInteraction | ChannelSelectMenuInteraction) {
   const parts = interaction.customId.split(':');
@@ -181,7 +181,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     return;
   }
 
-  // ── Section navigation ──────────────────────────────────────────────────
+  // ── PILIHAN PANELS, ALL THE CHOICES YOU MAKE WHEN THE ADMIN PABNEL IS CALLED
   if (action === 'section' && interaction.isStringSelectMenu()) {
     const section = interaction.values[0];
 
@@ -324,7 +324,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     }
   }
 
-  // ── Payment subsection selected ──────────────────────────────────────────
+  // ── Kalau user pilih sub-section di dalem payment panel
   if (action === 'paymentsub' && interaction.isStringSelectMenu()) {
     const sub = interaction.values[0];
     const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -621,7 +621,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     }
   }
 
-  // ── Tier edit: tier selected → show prefilled modal ──────────────────────
+  // ── Edit tier — user pilih tier mana yang mau diedit, modal udah keisi otomatis
   if (action === 'tier_edit_select' && interaction.isStringSelectMenu()) {
     const tierId = interaction.values[0];
     const tier = await prisma.middlemanFeeTier.findUnique({ where: { id: tierId } });
@@ -650,7 +650,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     return;
   }
 
-  // ── Tier delete: tier selected → delete and auto-refresh ────────────────
+  // ── Delete tier — langsung kehapus terus panelnya auto-refresh
   if (action === 'tier_delete_select' && interaction.isStringSelectMenu()) {
     const tierId = interaction.values[0];
     await prisma.middlemanFeeTier.delete({ where: { id: tierId } });
@@ -658,7 +658,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     return;
   }
 
-  // ── Rule edit: rule selected → show prefilled modal ──────────────────────
+  // ── Edit payment method — modal udah otomatis keisi pake data lama
   if (action === 'rule_edit_select' && interaction.isStringSelectMenu()) {
     const ruleId = interaction.values[0];
     const rule = await prisma.paymentFeeRule.findUnique({ where: { id: ruleId } });
@@ -691,7 +691,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     return;
   }
 
-  // ── Rule delete: rule selected → delete and auto-refresh ────────────────
+  // ── Delete payment method — langsung hilang terus panelnya auto-refresh
   if (action === 'rule_delete_select' && interaction.isStringSelectMenu()) {
     const ruleId = interaction.values[0];
     await prisma.paymentFeeRule.delete({ where: { id: ruleId } });
@@ -699,7 +699,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     return;
   }
 
-  // ── Rule enabled: bulk update enabled status ─────────────────────────────
+  // ── Bulk enable/disable payment methods sekaligus
   if (action === 'rule_enabled_select' && interaction.isStringSelectMenu()) {
     const selectedIds = interaction.values;
     await Promise.all([
@@ -712,7 +712,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     return;
   }
 
-  // ── Rule recommend: bulk update recommended status ────────────────────────
+  // ── Bulk set mana aja yang ⭐ recommended sekaligus
   if (action === 'rule_recommend_select' && interaction.isStringSelectMenu()) {
     const selectedIds = interaction.values;
     await Promise.all([
@@ -725,7 +725,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     return;
   }
 
-  // ── Category type selected → show channel select ────────────────────────
+  // ── User pilih jenis category dulu, abis itu baru muncul channel selectnya
   if (action === 'cattype' && interaction.isStringSelectMenu()) {
     const field = interaction.values[0];
     const channelSelect = new ChannelSelectMenuBuilder()
@@ -744,7 +744,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     return;
   }
 
-  // ── Channel selected → save ──────────────────────────────────────────────
+  // ── Channel udah dipilih, langsung kesave ke database
   if (action === 'setchannel' && field && interaction.isChannelSelectMenu()) {
     const channelId = interaction.values[0];
     await prisma.guild.update({ where: { id: guildId }, data: { [field]: channelId } });
@@ -758,7 +758,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     return;
   }
 
-  // ── Role type selected → show role select ───────────────────────────────
+  // ── User pilih jenis role dulu, abis itu baru muncul role selectnya
   if (action === 'roletype' && interaction.isStringSelectMenu()) {
     const field = interaction.values[0];
     const roleSelect = new RoleSelectMenuBuilder()
@@ -778,7 +778,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     return;
   }
 
-  // ── Roles selected → save ────────────────────────────────────────────────
+  // ── Roles udah dipilih, langsung kesave ke database
   if (action === 'setroles' && field && interaction.isRoleSelectMenu()) {
     const roleIds = interaction.values;
     await prisma.guild.update({ where: { id: guildId }, data: { [field]: roleIds } });
@@ -793,7 +793,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
     return;
   }
 
-  // ── Log type selected → show channel select ──────────────────────────────
+  // ── User pilih jenis log dulu, abis itu baru muncul channel selectnya
   if (action === 'logtype' && interaction.isStringSelectMenu()) {
     const field = interaction.values[0];
     const channelSelect = new ChannelSelectMenuBuilder()
@@ -813,7 +813,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
   }
 }
 
-// ── Button handler ────────────────────────────────────────────────────────────
+// ── Handler buat semua button di admin panel
 
 export async function handleButton(interaction: ButtonInteraction) {
   const [prefix, action, field] = interaction.customId.split(':');
@@ -876,7 +876,7 @@ export async function handleButton(interaction: ButtonInteraction) {
   }
 }
 
-// ── Modal handler ─────────────────────────────────────────────────────────────
+// ── Handler buat semua modal yang di-submit di admin panel
 
 export async function handleModal(interaction: ModalSubmitInteraction) {
   const parts = interaction.customId.split(':');

@@ -1,4 +1,8 @@
-﻿import { PrismaClient } from '@prisma/client';
+﻿// MASIH BELUM JALAN, MASIH BINGUNG CARA KERJA NTAR UNTUK KEDEPANNYA
+
+// TAKUT FAKE BLACKLIST, TAKUT JUGA SAMA FAKE VOUCH 
+
+import { PrismaClient } from '@prisma/client';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { successEmbed } from '../../components/embeds/success';
 import { errorEmbed } from '../../components/embeds/error';
@@ -63,7 +67,7 @@ export class BlacklistManager {
     });
   }
 
-  // â”€â”€ Command-facing helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Helpers buat dipanggil langsung dari slash command
   async addToBlacklist(
     guildId: string,
     userId: string,

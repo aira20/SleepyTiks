@@ -1,4 +1,6 @@
-﻿import { PrismaClient } from '@prisma/client';
+﻿// PROBABLY A FUTURE FEATURE THAT FOR FUTURE "SERVER RAME" -- IF NOT, WE'LL BE REMOVING IT
+
+import { PrismaClient } from '@prisma/client';
 import { client } from '../../bot/client';
 import { TicketManager } from '../tickets/TicketManager';
 import { logger } from '../../utils/logger';

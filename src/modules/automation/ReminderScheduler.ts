@@ -1,4 +1,6 @@
-﻿import { PrismaClient } from '@prisma/client';
+﻿// AUTOMATION NOT FOR NOW, PREMIUM JUGA BELUM TENTU KELUAR, MOSTLY ALL THE NEEDED FEATURES ARE IN FREEMIUM 
+
+import { PrismaClient } from '@prisma/client';
 import { TextChannel, EmbedBuilder } from 'discord.js';
 import { client } from '../../bot/client';
 import { Colors } from '../../types/index';

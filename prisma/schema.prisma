@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -8,36 +9,39 @@ datasource db {
 }
 
 model Guild {
-  id                    String              @id
+  id                    String                @id
   name                  String
-  isPremium             Boolean             @default(false)
-  premiumTier           PremiumTier         @default(NONE)
+  isPremium             Boolean               @default(false)
+  premiumTier           PremiumTier           @default(NONE)
   premiumExpiresAt      DateTime?
-  premiumLicenseKey     String?             @unique
+  premiumLicenseKey     String?               @unique
   logChannelId          String?
   transcriptChannelId   String?
-  staffRoleIds          String[]            @default([])
-  adminRoleIds          String[]            @default([])
+  staffRoleIds          String[]              @default([])
+  adminRoleIds          String[]              @default([])
   supportCategoryId     String?
   purchaseCategoryId    String?
   middlemanCategoryId   String?
   appealCategoryId      String?
   partnerCategoryId     String?
   reportCategoryId      String?
-  maxOpenTicketsPerUser Int                 @default(3)
-  ticketCooldownSeconds Int                 @default(0)
-  autoCloseInactiveDays Int                 @default(7)
-  requireReasonOnClose  Boolean             @default(false)
-  dmUserOnClose         Boolean             @default(true)
-  transcriptsEnabled    Boolean             @default(true)
-  ratingsEnabled        Boolean             @default(false)
-  totalTickets          Int                 @default(0)
-  totalTransactions     Int                 @default(0)
-  createdAt             DateTime            @default(now())
-  updatedAt             DateTime            @updatedAt
+  maxOpenTicketsPerUser Int                   @default(3)
+  ticketCooldownSeconds Int                   @default(0)
+  autoCloseInactiveDays Int                   @default(7)
+  requireReasonOnClose  Boolean               @default(false)
+  dmUserOnClose         Boolean               @default(true)
+  transcriptsEnabled    Boolean               @default(true)
+  ratingsEnabled        Boolean               @default(false)
+  totalTickets          Int                   @default(0)
+  totalTransactions     Int                   @default(0)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
   analytics             AnalyticsSnapshot[]
   automationRules       AutomationRule[]
   blacklistEntries      Blacklist[]
+  paymentSettings       GuildPaymentSettings?
+  feeTiers              MiddlemanFeeTier[]
+  paymentFeeRules       PaymentFeeRule[]
   reputationRecords     Reputation[]
   scamReports           ScamReport[]
   shifts                Shift[]
@@ -46,9 +50,6 @@ model Guild {
   customCategories      TicketCategory[]
   transactions          Transaction[]
   vouches               Vouch[]
-  paymentSettings       GuildPaymentSettings?
-  feeTiers              MiddlemanFeeTier[]
-  paymentFeeRules       PaymentFeeRule[]
 
   @@index([isPremium])
 }
@@ -92,7 +93,6 @@ model Ticket {
   channelName       String
   status            TicketStatus          @default(OPEN)
   priority          Priority              @default(NORMAL)
-  language          String                @default("en")
   formData          Json?
   transactionId     String?               @unique
   firstResponseAt   DateTime?
@@ -108,6 +108,7 @@ model Ticket {
   closedByTag       String?
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
+  language          String                @default("en")
   notes             StaffNote[]
   category          TicketCategory?       @relation(fields: [categoryId], references: [id])
   guild             Guild                 @relation(fields: [guildId], references: [id], onDelete: Cascade)
@@ -461,11 +462,11 @@ model GuildPaymentSettings {
   accountNumber             String   @default("6760315042")
   accountHolder             String   @default("Azra Reza Satria H")
   qrisImageUrl              String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
   allowCustomPaymentMethods Boolean  @default(true)
   customMethodFee           Int      @default(2500)
   customMethodLabel         String   @default("Other Payment Method")
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
   guild                     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 }
 
@@ -487,13 +488,13 @@ model PaymentFeeRule {
   id          String   @id @default(cuid())
   guildId     String
   methodName  String
-  fee         Int      @default(0)
-  recommended Boolean  @default(false)
-  enabled     Boolean  @default(true)
-  description String?
+  fee         Int
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  recommended Boolean  @default(false)
+  enabled     Boolean  @default(true)
+  description String?
   guild       Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, methodName])

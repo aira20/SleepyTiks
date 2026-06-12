@@ -1,4 +1,6 @@
-﻿import { GuildMember } from 'discord.js';
+﻿// BELUM JALAN, STILL NO IDEA WHAT TO DO WITH THIS
+
+import { GuildMember } from 'discord.js';
 import { PrismaClient } from '@prisma/client';
 import { AccountRiskProfile, RiskFlag } from '../../types/index';
 
@@ -13,7 +15,7 @@ export class AccountAnalyzer {
       (Date.now() - member.user.createdTimestamp) / (1000 * 60 * 60 * 24)
     );
 
-    // â”€â”€ Account Age Checks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Cek umur akun — makin baru, makin mencurigakan
     if (accountAgeDays < 7) {
       flags.push({ code: 'NEW_ACCOUNT_7D', severity: 'HIGH', description: 'Account is less than 7 days old' });
       riskScore += 40;
@@ -25,13 +27,13 @@ export class AccountAnalyzer {
       riskScore += 5;
     }
 
-    // â”€â”€ No Avatar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Cek avatar — akun tanpa pp biasanya akun baru / akun bot
     if (!member.user.avatar) {
       flags.push({ code: 'NO_AVATAR', severity: 'LOW', description: 'Account has no profile picture' });
       riskScore += 10;
     }
 
-    // â”€â”€ Blacklist Check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Cek blacklist — kalau udah keblacklist, langsung nambah skor gede
     const blacklisted = await prisma.blacklist.findFirst({
       where: { userId: member.id, isActive: true },
     });
@@ -40,7 +42,7 @@ export class AccountAnalyzer {
       riskScore += 60;
     }
 
-    // â”€â”€ Previous Scam Reports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Cek riwayat report — pernah dilaporin sebelumnya gak
     const reportTickets = await prisma.ticket.count({
       where: {
         guildId,
@@ -53,7 +55,7 @@ export class AccountAnalyzer {
       riskScore += Math.min(reportTickets * 15, 40);
     }
 
-    // â”€â”€ Disputed Transactions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Cek transaksi yang pernah didispute — banyak masalah = sus
     const disputes = await prisma.transaction.count({
       where: {
         guildId,
@@ -66,7 +68,7 @@ export class AccountAnalyzer {
       riskScore += Math.min(disputes * 10, 30);
     }
 
-    // â”€â”€ Spam Tickets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Spam ticket — buka ticket terus-terusan dalam 24 jam = mencurigakan
     const recentTickets = await prisma.ticket.count({
       where: {
         guildId,

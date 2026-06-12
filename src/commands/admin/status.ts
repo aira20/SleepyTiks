@@ -26,7 +26,7 @@ export const data = new SlashCommandBuilder()
       ),
   );
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers — fungsi-fungsi kecil buat format uptime sama memory
 
 function formatUptime(ms: number): string {
   const totalSecs = Math.floor(ms / 1000);
@@ -90,7 +90,7 @@ async function gatherStatus(client: ChatInputCommandInteraction['client']): Prom
   return { dbOk, dbLatencyMs, openTickets, totalTickets, totalTransactions, guilds, wsLatency, uptimeMs, memoryMB, nodeVersion };
 }
 
-// ── Embed builders ────────────────────────────────────────────────────────────
+// ── Builder buat embed-embednya, tampilan status di Discord
 
 function buildOverviewEmbed(s: SystemStatus): EmbedBuilder {
   const allOk = s.dbOk;
@@ -191,7 +191,7 @@ function buildServiceEmbed(service: string, s: SystemStatus): EmbedBuilder {
   }
 }
 
-// ── Command handler ───────────────────────────────────────────────────────────
+// ── Command handler — yang dipanggil pas user ngetik /status
 
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   await interaction.deferReply();

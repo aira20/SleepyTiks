@@ -21,7 +21,7 @@ export function canManageTicket(member: GuildMember, guild: Guild, ticketCreator
   return isStaff(member, guild) || member.id === ticketCreatorId;
 }
 
-// ── Per-action ticket permission checks ──────────────────────────────────────
+// ── Cek permission per action di ticket (close, claim, delete, dll.)
 
 export function canCloseTicket(member: GuildMember, guild: Guild, creatorId: string): boolean {
   return isStaff(member, guild) || member.id === creatorId;

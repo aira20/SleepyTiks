@@ -1,9 +1,9 @@
 import { prisma } from './prisma';
 import { FEE_BRACKETS } from './middlemanFee';
 
-// ─── Default payment methods seeded for new servers ──────────────────────────
-// Change this list to update what new servers start with.
-// Existing servers are never touched.
+// ── Default payment methods buat server baru
+// Edit list ini kalo mau ngubah default-nya server baru.
+// Server yang udah ada ga akan kesentuh sama sekali.
 const DEFAULT_PAYMENT_METHODS: {
   methodName:  string;
   fee:         number;

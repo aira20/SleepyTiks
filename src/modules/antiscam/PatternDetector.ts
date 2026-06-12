@@ -1,3 +1,5 @@
+// MASIH IDE DAOANG, JANGAN DI UTAK UTIK DULU 
+
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();

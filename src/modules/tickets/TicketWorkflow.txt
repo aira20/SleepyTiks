@@ -37,11 +37,11 @@ export class TicketWorkflow {
     const userId = member.id;
     const userTag = member.user.tag;
 
-    // â”€â”€ DB guild config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Ambil config guild dari DB, kalau belum ke-setup ya udah stop
     const guild = await prisma.guild.findUnique({ where: { id: guildId } });
     if (!guild) return { success: false, message: 'Bot is not configured for this server. Run /setup first.' };
 
-    // â”€â”€ Cooldown check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Cek cooldown — biar gak abuse buka ticket berturut-turut
     const cooldown = await PatternDetector.checkCooldown(guildId, userId, type);
     if (cooldown.onCooldown) {
       return {
@@ -50,13 +50,13 @@ export class TicketWorkflow {
       };
     }
 
-    // â”€â”€ Duplicate check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Cek duplikat — udah ada ticket type yang sama yang masih open
     const isDuplicate = await PatternDetector.checkDuplicateTicket(guildId, userId, type);
     if (isDuplicate) {
       return { success: false, message: `You already have an open ${type.replace(/_/g, ' ')} ticket.` };
     }
 
-    // â”€â”€ Open ticket limit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Limit ticket yang lagi open — beda limit buat free vs premium
     const openCount = await prisma.ticket.count({
       where: { guildId, creatorId: userId, status: { notIn: ['CLOSED', 'ARCHIVED'] } },
     });
@@ -65,17 +65,17 @@ export class TicketWorkflow {
       return { success: false, message: `You have reached the maximum of ${maxOpen} open tickets.` };
     }
 
-    // â”€â”€ Account risk analysis â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Analisa risk akun — kalau skornya tinggi banget, langsung di-block
     const riskProfile = await AccountAnalyzer.analyze(member, guildId);
     if (riskProfile.recommendation === 'BLOCK') {
       logger.warn(`Blocked ticket creation from ${userTag} â€” risk score ${riskProfile.riskScore}`);
       return { success: false, message: 'You are not allowed to open tickets at this time. Contact an administrator if you believe this is a mistake.' };
     }
 
-    // â”€â”€ Pattern detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Cek pola mencurigakan dari isi form-nya
     const patterns = PatternDetector.analyzeFormData(formData);
 
-    // â”€â”€ Create channel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Bikin channel ticketnya, sekalian set permission staff & user
     const categoryConfig = await prisma.ticketCategory.findUnique({
       where: { guildId_ticketType: { guildId, ticketType: type } },
     });
@@ -105,7 +105,7 @@ export class TicketWorkflow {
       topic: `${type} ticket for ${userTag} | Ticket opened ${new Date().toISOString()}`,
     }) as TextChannel;
 
-    // â”€â”€ Create ticket record â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Bikin record ticketnya di database
     const ticket = await TicketManager.create({
       guildId,
       creatorId: userId,
@@ -115,10 +115,10 @@ export class TicketWorkflow {
       channel,
     });
 
-    // â”€â”€ Set cooldown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Set cooldown biar gak langsung bisa buka lagi
     await PatternDetector.setCooldown(guildId, userId, type, guild.cooldownSeconds);
 
-    // â”€â”€ Risk warning to staff â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Kasih warning ke staff kalau akunnya sus / form-nya mencurigakan
     if (riskProfile.recommendation === 'WARN_STAFF' || patterns.detected) {
       const warnings: string[] = [];
       if (riskProfile.recommendation === 'WARN_STAFF') {

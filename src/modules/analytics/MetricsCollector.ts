@@ -77,7 +77,7 @@ export class MetricsCollector {
     return new Date(now.getTime() - 30 * 86_400_000);
   }
 
-  // ── Command-facing helpers ────────────────────────────────────────────────
+  // ── Command-facing helpers 
   async showStaffStats(
     guildId: string,
     userId: string,

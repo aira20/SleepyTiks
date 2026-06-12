@@ -20,7 +20,7 @@ import { logger } from '../../utils/logger.js';
 const prisma = new PrismaClient();
 
 export class TicketManager {
-  // â”€â”€ Create Ticket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Bikin ticket baru — generate ticketNumber, kirim welcome embed, audit-log
   static async create(options: TicketCreateOptions) {
     const { guildId, creatorId, creatorTag, type, formData, channel } = options;
 
@@ -67,7 +67,7 @@ export class TicketManager {
     return ticket;
   }
 
-  // â”€â”€ Close Ticket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Tutup ticket — bisa sekalian generate transcript, channel-nya kehapus 10 detik kemudian
   static async close(options: TicketCloseOptions) {
     const { ticketId, closedById, closedByTag, reason, generateTranscript } = options;
 
@@ -123,7 +123,7 @@ export class TicketManager {
     }
   }
 
-  // â”€â”€ Claim Ticket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Claim ticket — staff yang pertama klaim, sekalian catet response time
   static async claim(ticketId: string, staffId: string, staffTag: string) {
     const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
     if (!ticket) throw new Error('Ticket not found');
@@ -153,7 +153,7 @@ export class TicketManager {
     });
   }
 
-  // â”€â”€ Transfer Ticket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Pindahin ticket ke staff lain
   static async transfer(options: TicketTransferOptions) {
     const { ticketId, newStaffId, newStaffTag, transferredById, transferredByTag, reason } = options;
 
@@ -177,7 +177,7 @@ export class TicketManager {
     });
   }
 
-  // â”€â”€ Escalate Ticket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Escalate ticket — naikin priority, claim-nya direset biar admin bisa ambil
   static async escalate(options: TicketEscalateOptions) {
     const { ticketId, escalatedById, escalatedByTag, reason, newPriority } = options;
 
@@ -205,7 +205,7 @@ export class TicketManager {
     });
   }
 
-  // â”€â”€ Update Status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Ganti status ticket secara manual
   static async setStatus(ticketId: string, status: TicketStatus, actorId: string, actorTag: string) {
     const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
     if (!ticket) throw new Error('Ticket not found');
@@ -223,7 +223,7 @@ export class TicketManager {
     });
   }
 
-  // â”€â”€ Set Priority â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Ganti priority ticket
   static async setPriority(ticketId: string, priority: Priority, actorId: string, actorTag: string) {
     const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
     if (!ticket) throw new Error('Ticket not found');
@@ -241,7 +241,7 @@ export class TicketManager {
     });
   }
 
-  // â”€â”€ Reopen Ticket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Buka lagi ticket yang udah ditutup
   static async reopen(ticketId: string, actorId: string, actorTag: string) {
     const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
     if (!ticket) throw new Error('Ticket not found');
@@ -261,14 +261,14 @@ export class TicketManager {
     });
   }
 
-  // â”€â”€ Add Note â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Nambahin note internal staff di ticket
   static async addNote(ticketId: string, authorId: string, authorTag: string, content: string) {
     return prisma.ticketNote.create({
       data: { ticketId, authorId, authorTag, content },
     });
   }
 
-  // â”€â”€ Add Participant â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Tambahin user lain ke dalem ticket
   static async addParticipant(ticketId: string, userId: string, userTag: string, addedById: string) {
     return prisma.ticketParticipant.upsert({
       where: { ticketId_userId: { ticketId, userId } },
@@ -277,12 +277,12 @@ export class TicketManager {
     });
   }
 
-  // â”€â”€ Remove Participant â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Keluarin user dari ticket
   static async removeParticipant(ticketId: string, userId: string) {
     return prisma.ticketParticipant.deleteMany({ where: { ticketId, userId } });
   }
 
-  // â”€â”€ Update Staff Stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Update statistik staff abis tutup ticket — buat leaderboard nanti
   private static async updateStaffStats(guildId: string, staffId: string, staffTag: string, ticket: any) {
     const responseMs = ticket.responseTimeMs ?? 0;
     await prisma.staffStats.upsert({
@@ -304,7 +304,7 @@ export class TicketManager {
     });
   }
 
-  // â”€â”€ Build Ticket Embed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Bikin embed buat tampilan ticket di Discord
   static buildTicketEmbed(ticket: any, creatorTag: string): EmbedBuilder {
     const statusDisplay = TICKET_STATUS_DISPLAY[ticket.status as TicketStatus];
     const priorityDisplay = PRIORITY_DISPLAY[ticket.priority as Priority];
@@ -323,7 +323,7 @@ export class TicketManager {
       .setTimestamp();
   }
 
-  // â”€â”€ Build Action Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Bikin tombol-tombol action (claim, close, note) di bawah embed
   static buildTicketButtons(ticketId: string): ActionRowBuilder<ButtonBuilder> {
     return new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId(`ticket:claim:${ticketId}`).setLabel('Claim').setStyle(ButtonStyle.Primary).setEmoji('ðŸ™‹'),

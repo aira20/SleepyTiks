@@ -13,7 +13,7 @@ import {
 } from 'discord.js';
 import { PremiumTier, TicketType, TicketStatus, Priority, TransactionStatus } from '@prisma/client';
 
-// ─── Command Interface ───────────────────────────────────────────────────────
+// ── Command Interface — bentuk standar tiap slash command
 
 export interface Command {
   data: SlashCommandBuilder | ContextMenuCommandBuilder | Omit<SlashCommandBuilder, 'addSubcommand' | 'addSubcommandGroup'>;
@@ -28,14 +28,14 @@ export interface Command {
   handleSelect?: (interaction: StringSelectMenuInteraction | RoleSelectMenuInteraction | ChannelSelectMenuInteraction) => Promise<void>;
 }
 
-// ─── Bot Client Extension ────────────────────────────────────────────────────
+// ── Bot Client Extension — tambahan property buat client utama
 
 export interface BotClient {
   commands: Collection<string, Command>;
   cooldowns: Collection<string, Collection<string, number>>;
 }
 
-// ─── Ticket Workflow Types ───────────────────────────────────────────────────
+// ── Type-type buat ticket workflow (create, close, transfer, escalate)
 
 export interface TicketCreateOptions {
   guildId: string;
@@ -72,7 +72,7 @@ export interface TicketEscalateOptions {
   newPriority?: Priority;
 }
 
-// ─── Transaction / Middleman Types ───────────────────────────────────────────
+// ── Type-type buat transaction / middleman
 
 export interface TransactionCreateOptions {
   guildId: string;
@@ -97,7 +97,7 @@ export interface TransactionStatusUpdate {
   proofUrl?: string;
 }
 
-// ─── Form Field Definitions ──────────────────────────────────────────────────
+// ── Definisi form fields buat tiap jenis ticket
 
 export interface FormField {
   id: string;
@@ -178,7 +178,7 @@ export const TICKET_FORMS: Record<TicketType, FormField[]> = {
   CUSTOM: [],
 };
 
-// ─── Anti-Scam Account Analysis ──────────────────────────────────────────────
+// ── Anti-scam — buat ngecek profile akun mencurigakan
 
 export interface AccountRiskProfile {
   userId: string;
@@ -194,7 +194,7 @@ export interface RiskFlag {
   description: string;
 }
 
-// ─── Analytics Types ─────────────────────────────────────────────────────────
+// ── Type-type buat analytics & leaderboard staff
 
 export interface GuildAnalyticsSummary {
   period: 'day' | 'week' | 'month';
@@ -218,7 +218,7 @@ export interface StaffLeaderboardEntry {
   score: number;
 }
 
-// ─── Embed Color Palette ─────────────────────────────────────────────────────
+// ── Warna-warna buat embed di Discord
 
 export const Colors = {
   PRIMARY: 0x5865f2,
@@ -233,7 +233,7 @@ export const Colors = {
   TRANSCRIPT: 0x1abc9c,
 } as const;
 
-// ─── Status Display Maps ─────────────────────────────────────────────────────
+// ── Map status ke label + emoji + warna buat ditampilin
 
 export const TICKET_STATUS_DISPLAY: Record<TicketStatus, { label: string; emoji: string; color: number }> = {
   OPEN:           { label: 'Open',             emoji: '🟢', color: Colors.SUCCESS },
