@@ -135,7 +135,7 @@ export async function handleButton(interaction: ButtonInteraction) {
       const fetched = await client.channels.fetch(ticket.channelId);
       if (fetched && fetched.isTextBased() && !fetched.isDMBased()) {
         const ch = fetched as import('discord.js').TextChannel;
-        await ch.permissionOverwrites.edit(ticket.guildId, { SendMessages: null });
+        await TicketManager.unlockParticipants(ch, ticketId);
       }
     } catch {}
 

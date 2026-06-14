@@ -5,6 +5,8 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ModalSubmitInteraction,
+  PermissionFlagsBits,
+  OverwriteType,
 } from 'discord.js';
 import { PrismaClient, TicketType, TicketStatus, Priority } from '@prisma/client';
 import { client } from '../../bot/client';
@@ -14,6 +16,7 @@ import { NotificationService } from '../../services/NotificationService';
 import { TranscriptGenerator } from './TranscriptGenerator';
 import { priorityBadge, ticketStatusBadge } from '../../utils/formatting';
 import { getLocale } from '../../locales';
+import { logger } from '../../utils/logger';
 
 const prisma = new PrismaClient();
 
@@ -85,7 +88,7 @@ export class TicketManager {
       if (!fetched || !fetched.isTextBased() || fetched.isDMBased()) return;
       const channel = fetched as TextChannel;
 
-      await channel.permissionOverwrites.edit(ticket.guildId, { SendMessages: false });
+      await this.lockParticipants(channel, ticket.id);
 
       const t = getLocale((ticket.formData as any)?._lang);
 
@@ -111,6 +114,61 @@ export class TicketManager {
     } catch {
       // Channel inaccessible — nothing to do
     }
+  }
+
+  // Locks every non-staff member overwrite to read-only. Staff/admin keep full
+  // access because their access is granted via role overwrites, which we never touch.
+  private static async lockParticipants(channel: TextChannel, ticketId: string): Promise<number> {
+    const memberOverwrites = channel.permissionOverwrites.cache.filter(
+      ow => ow.type === OverwriteType.Member && ow.id !== client.user?.id,
+    );
+
+    let locked = 0;
+    for (const overwrite of memberOverwrites.values()) {
+      try {
+        await channel.permissionOverwrites.edit(overwrite.id, {
+          ViewChannel: true,
+          ReadMessageHistory: true,
+          SendMessages: false,
+          AddReactions: false,
+          CreatePublicThreads: false,
+          CreatePrivateThreads: false,
+          SendMessagesInThreads: false,
+        });
+        locked++;
+      } catch (err) {
+        logger.warn(`[Ticket] Failed to lock participant ${overwrite.id} on ticket ${ticketId}`, err);
+      }
+    }
+
+    logger.info(`[Ticket] Ticket ${ticketId} closed — permissions locked for ${locked} participant(s), channel is now read-only`);
+    return locked;
+  }
+
+  // Restores send/react/thread abilities for non-staff members on reopen.
+  static async unlockParticipants(channel: TextChannel, ticketId: string): Promise<number> {
+    const memberOverwrites = channel.permissionOverwrites.cache.filter(
+      ow => ow.type === OverwriteType.Member && ow.id !== client.user?.id,
+    );
+
+    let unlocked = 0;
+    for (const overwrite of memberOverwrites.values()) {
+      try {
+        await channel.permissionOverwrites.edit(overwrite.id, {
+          SendMessages: true,
+          AddReactions: null,
+          CreatePublicThreads: null,
+          CreatePrivateThreads: null,
+          SendMessagesInThreads: null,
+        });
+        unlocked++;
+      } catch (err) {
+        logger.warn(`[Ticket] Failed to unlock participant ${overwrite.id} on ticket ${ticketId}`, err);
+      }
+    }
+
+    logger.info(`[Ticket] Ticket ${ticketId} reopened — permissions restored for ${unlocked} participant(s)`);
+    return unlocked;
   }
 
   static async claim(ticketId: string, staffId: string, staffTag: string) {
