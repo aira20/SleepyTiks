@@ -265,6 +265,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
         .addFields(
           { name: 'Log Channel', value: guild.logChannelId ? `<#${guild.logChannelId}>` : '⚠️ Not set', inline: true },
           { name: 'Transcript Channel', value: guild.transcriptChannelId ? `<#${guild.transcriptChannelId}>` : 'Not set', inline: true },
+          { name: '📢 Updates Channel', value: guild.updateChannelId ? `<#${guild.updateChannelId}>` : 'Not set', inline: true },
         );
 
       const logTypeSelect = new StringSelectMenuBuilder()
@@ -273,6 +274,7 @@ export async function handleSelect(interaction: StringSelectMenuInteraction | Ro
         .addOptions([
           { label: 'Audit Log Channel', description: 'Ticket events and staff actions', value: 'logChannelId' },
           { label: 'Transcript Channel', description: 'Deleted ticket transcripts', value: 'transcriptChannelId' },
+          { label: '📢 Updates Channel', description: 'Where update announcements are posted', value: 'updateChannelId' },
         ]);
 
       const backRow = new ActionRowBuilder<ButtonBuilder>().addComponents(

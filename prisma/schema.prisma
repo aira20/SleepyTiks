@@ -17,6 +17,7 @@ model Guild {
   premiumLicenseKey     String?               @unique
   logChannelId          String?
   transcriptChannelId   String?
+  updateChannelId       String?
   staffRoleIds          String[]              @default([])
   adminRoleIds          String[]              @default([])
   supportCategoryId     String?
